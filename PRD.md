@@ -1,5 +1,7 @@
 > Historical product brief retained for context. For the shipped 0.3 alpha, see README.md and docs/VALIDATION.md. Requirements below are not claims that every v1 gate has passed.
 
+> Historical document: this project was renamed from Switchyard to Loqalyn in Alpha 3. Original names, commands, measurements and evidence below describe the version reviewed at that time.
+
 # Switchyard — local model router
 
 Product requirements, revised October 13, 2026 · Product owner: Dinand Tinholt

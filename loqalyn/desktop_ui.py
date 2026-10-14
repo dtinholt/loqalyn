@@ -1,4 +1,4 @@
-"""Switchyard's native Cocoa interface. No browser, HTML, or WebView is used.
+"""Loqalyn's native Cocoa interface. No browser, HTML, or WebView is used.
 
 All controller operations run on daemon workers. Only callbacks marshalled by
 AppHelper.callAfter touch AppKit. Validation and approval invariants live in
@@ -142,7 +142,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         self._sync_buttons()
         if self.started:
             self._status("Checking active requests before quitting…")
-            self._work("quit-check", lambda: self.controller.call("/switchyard/status"), self._quit_checked, quiet=True, allow_quit=True)
+            self._work("quit-check", lambda: self.controller.call("/loqalyn/status"), self._quit_checked, quiet=True, allow_quit=True)
         else:
             self._begin_shutdown()
         return C.NSTerminateLater
@@ -151,7 +151,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
     def _quit_checked(self, state):
         active = int(state.get("active", 0))
         if active or self.stream_cancel is not None or self.job_ids:
-            if not self._confirm("Quit Switchyard?", f"{max(active, 1)} request(s) or downloads may be interrupted. The local endpoint will stop. Model runtimes remain separate applications.", "Quit", destructive=True):
+            if not self._confirm("Quit Loqalyn?", f"{max(active, 1)} request(s) or downloads may be interrupted. The local endpoint will stop. Model runtimes remain separate applications.", "Quit", destructive=True):
                 self._cancel_quit()
                 return
         self._begin_shutdown()
@@ -162,7 +162,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         self.timer = F.NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(5.0, self, "poll:", None, True)
         C.NSApplication.sharedApplication().replyToApplicationShouldTerminate_(False)
         self._sync_buttons()
-        self._status("Switchyard is still running.")
+        self._status("Loqalyn is still running.")
         deferred, self.deferred_callbacks = self.deferred_callbacks, []
         for callback in deferred:
             AppHelper.callAfter(self._work_done, *callback)
@@ -371,17 +371,17 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
     @objc.python_method
     def _build_menu(self):
         main = C.NSMenu.alloc().init()
-        app_item = C.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Switchyard", None, "")
-        app_menu = C.NSMenu.alloc().initWithTitle_("Switchyard")
-        about = C.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("About Switchyard", "orderFrontStandardAboutPanel:", "")
+        app_item = C.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Loqalyn", None, "")
+        app_menu = C.NSMenu.alloc().initWithTitle_("Loqalyn")
+        about = C.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("About Loqalyn", "orderFrontStandardAboutPanel:", "")
         app_menu.addItem_(about)
         app_menu.addItem_(C.NSMenuItem.separatorItem())
         settings = C.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Settings…", None, ",")
         self._action(settings, lambda: self._navigate("Settings"))
         app_menu.addItem_(settings)
         app_menu.addItem_(C.NSMenuItem.separatorItem())
-        app_menu.addItem_(C.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Hide Switchyard", "hide:", "h"))
-        app_menu.addItem_(C.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Quit Switchyard", "terminate:", "q"))
+        app_menu.addItem_(C.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Hide Loqalyn", "hide:", "h"))
+        app_menu.addItem_(C.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Quit Loqalyn", "terminate:", "q"))
         app_item.setSubmenu_(app_menu)
         main.addItem_(app_item)
         edit_item = C.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Edit", None, "")
@@ -392,7 +392,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         main.addItem_(edit_item)
         window_item = C.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Window", None, "")
         window_menu = C.NSMenu.alloc().initWithTitle_("Window")
-        show = C.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Show Switchyard", "showWindow:", "0")
+        show = C.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Show Loqalyn", "showWindow:", "0")
         show.setTarget_(self)
         window_menu.addItem_(show)
         window_menu.addItem_(C.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Close Window", "performClose:", "w"))
@@ -404,7 +404,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
     def _build_window(self):
         style = C.NSWindowStyleMaskTitled | C.NSWindowStyleMaskClosable | C.NSWindowStyleMaskMiniaturizable | C.NSWindowStyleMaskResizable
         self.window = C.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(rect(0, 0, WIDTH, HEIGHT), style, C.NSBackingStoreBuffered, False)
-        self.window.setTitle_("Switchyard")
+        self.window.setTitle_("Loqalyn")
         self.window.setMinSize_(F.NSMakeSize(1160, 700))
         self.window.setAppearance_(C.NSAppearance.appearanceNamed_(C.NSAppearanceNameAqua))
         self.window.setBackgroundColor_(CANVAS)
@@ -419,7 +419,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         self.sidebar.setWantsLayer_(True); self.sidebar.layer().setBackgroundColor_(SIDEBAR_COLOR.CGColor())
         self.root.addSubview_(self.sidebar)
         self._label(self.sidebar, "⇄", 23, 30, 28, 34, size=27, bold=True).setTextColor_(color('8DE4CB'))
-        self._label(self.sidebar, "Switchyard", 57, 34, 140, 28, size=19, bold=True).setTextColor_(SURFACE)
+        self._label(self.sidebar, "Loqalyn", 57, 34, 140, 28, size=19, bold=True).setTextColor_(SURFACE)
         self._label(self.sidebar, "LOCAL MODEL ROUTER", 25, 72, 175, 18, size=9).setTextColor_(NAV_TEXT)
         self._label(self.sidebar, "WORKSPACE", 25, 114, 165, 18, size=10).setTextColor_(color('769399'))
         symbols=("square.grid.2x2", "square.stack.3d.up", "magnifyingglass", "sparkles", "slider.horizontal.3", "clock.arrow.circlepath", "checkmark.shield", "gearshape")
@@ -441,7 +441,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         self.main_scroll.setAutohidesScrollers_(True)
         self.main_scroll.setDrawsBackground_(False)
         self.root.addSubview_(self.main_scroll)
-        self.status_label = self._label(self.root, "Starting Switchyard…", SIDEBAR + 24, HEIGHT - 32, PAGE_WIDTH - 30, 24, secondary=True, size=11)
+        self.status_label = self._label(self.root, "Starting Loqalyn…", SIDEBAR + 24, HEIGHT - 32, PAGE_WIDTH - 30, 24, secondary=True, size=11)
         self._build_overview()
         self._build_models()
         self._build_discover()
@@ -460,20 +460,20 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
     def _build_status_item(self):
         self.status_item = C.NSStatusBar.systemStatusBar().statusItemWithLength_(C.NSVariableStatusItemLength)
         self.status_item.button().setTitle_("⇄")
-        self.status_item.button().setToolTip_("Switchyard • Local model router")
+        self.status_item.button().setToolTip_("Loqalyn • Local model router")
         menu = C.NSMenu.alloc().init()
-        self.status_menu_line = C.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Starting Switchyard…", None, "")
+        self.status_menu_line = C.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Starting Loqalyn…", None, "")
         self.status_menu_line.setEnabled_(False)
         menu.addItem_(self.status_menu_line)
         menu.addItem_(C.NSMenuItem.separatorItem())
-        show = C.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Show Switchyard", "showWindow:", "")
+        show = C.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Show Loqalyn", "showWindow:", "")
         show.setTarget_(self)
         menu.addItem_(show)
         refresh = C.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Refresh model library", None, "")
         self._action(refresh, lambda: self._refresh(True))
         menu.addItem_(refresh)
         menu.addItem_(C.NSMenuItem.separatorItem())
-        menu.addItem_(C.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Quit Switchyard", "terminate:", ""))
+        menu.addItem_(C.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Quit Loqalyn", "terminate:", ""))
         self.status_item.setMenu_(menu)
 
     @objc.python_method
@@ -512,7 +512,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         self.main_scroll.setDocumentView_(self.pages[name])
         self.main_scroll.contentView().scrollToPoint_(F.NSMakePoint(0, 0))
         self.main_scroll.reflectScrolledClipView_(self.main_scroll.contentView())
-        self.window.setTitle_(name + " — Switchyard")
+        self.window.setTitle_(name + " — Loqalyn")
         if show:
             self.showWindow_(None)
 
@@ -603,12 +603,12 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         self._reload_table(self.hub_files_table, self.hub_files_source, [])
         self.hub_note.setStringValue_("Searching Hugging Face…")
         if '/' in query:
-            self._work("hub-inspect", lambda:self.controller.call('/switchyard/hub/inspect','POST',{'repository':query}), self._hub_inspected)
+            self._work("hub-inspect", lambda:self.controller.call('/loqalyn/hub/inspect','POST',{'repository':query}), self._hub_inspected)
             return
         def done(result):
             self._reload_table(self.hub_table, self.hub_source, result['models'])
             self.hub_note.setStringValue_(f"{len(result['models'])} repositories. Select one, then inspect its files." if result['models'] else "No public GGUF text models found. Try a broader model name.")
-        self._work("hub-search", lambda:self.controller.call('/switchyard/hub/search','POST',{'query':query}), done)
+        self._work("hub-search", lambda:self.controller.call('/loqalyn/hub/search','POST',{'query':query}), done)
 
     @objc.python_method
     def _hub_selected(self):
@@ -624,7 +624,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         repo = selected['id']
         self.hub_preview = None
         self.hub_note.setStringValue_("Checking model files and download sizes…")
-        self._work("hub-inspect", lambda:self.controller.call('/switchyard/hub/inspect','POST',{'repository':repo}), self._hub_inspected)
+        self._work("hub-inspect", lambda:self.controller.call('/loqalyn/hub/inspect','POST',{'repository':repo}), self._hub_inspected)
 
     @objc.python_method
     def _hub_inspected(self, result):
@@ -654,7 +654,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
             text += "\n\nThis estimate exceeds your usable model budget. Installation may succeed, but routing may exclude the model."
         if not self._confirm("Install this model?", text, "Download & install"): return
         body = {'preview_id':preview['id'], 'filename':file['filename'], 'confirmed':True}
-        self._work("hub-install", lambda:self.controller.call('/switchyard/hub/install','POST',body), self._download_started)
+        self._work("hub-install", lambda:self.controller.call('/loqalyn/hub/install','POST',body), self._download_started)
 
     @objc.python_method
     def _render_downloads(self):
@@ -674,7 +674,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
                 self.download_states[result['id']] = result
                 if result.get('status') != 'running': self.job_ids.discard(result['id'])
                 self._render_downloads()
-            self._work('cancel-'+job_id, lambda ident=job_id:self.controller.call('/switchyard/jobs/'+quote(ident,safe='')+'/cancel','POST',{}), done)
+            self._work('cancel-'+job_id, lambda ident=job_id:self.controller.call('/loqalyn/jobs/'+quote(ident,safe='')+'/cancel','POST',{}), done)
 
     @objc.python_method
     def _verify_local_setup(self):
@@ -685,11 +685,11 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
             policy = state['policy']
             if set(policy['runtimes']) == {'ollama'} and state.get('runtimes',{}).get('ollama',{}).get('cloud_disabled') is True:
                 updated = copy.deepcopy(policy); updated['runtime_local_only_confirmed'] = True
-                self._work('settings', lambda:self.controller.call('/switchyard/policy','PUT',updated), lambda _:self._refresh(True))
+                self._work('settings', lambda:self.controller.call('/loqalyn/policy','PUT',updated), lambda _:self._refresh(True))
                 self._status("Ollama confirms cloud access is off. Local generation is enabled.")
             else:
                 self._status("Review the verification result in Local runtime setup. Confirm LM Link or older runtime settings manually.")
-        self._work('verify-setup', lambda:self.controller.call('/switchyard/refresh','POST',{}), checked)
+        self._work('verify-setup', lambda:self.controller.call('/loqalyn/refresh','POST',{}), checked)
 
     @objc.python_method
     def _build_playground(self):
@@ -789,7 +789,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         self._label(page, self.controller.endpoint + "/v1", 24, 1160, PAGE_WIDTH - 48, 24, stretch=True)
         self._button(page, "Copy base URL", 24, 1200, 150, self._copy_endpoint)
         self._button(page, "Copy API token", 186, 1200, 155, self._copy_token, "copy_token")
-        self._label(page, "Closing the window keeps Switchyard in the menu bar. Quit Switchyard to stop its local endpoint.", 24, 1257, PAGE_WIDTH - 48, 47, secondary=True, size=11, stretch=True)
+        self._label(page, "Closing the window keeps Loqalyn in the menu bar. Quit Loqalyn to stop its local endpoint.", 24, 1257, PAGE_WIDTH - 48, 47, secondary=True, size=11, stretch=True)
 
     @objc.python_method
     def _status(self, text):
@@ -800,7 +800,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         self._status(message)
         alert = C.NSAlert.alloc().init()
         alert.setAlertStyle_(C.NSAlertStyleWarning)
-        alert.setMessageText_("Switchyard could not complete this action")
+        alert.setMessageText_("Loqalyn could not complete this action")
         alert.setInformativeText_(message)
         alert.addButtonWithTitle_("OK")
         alert.runModal()
@@ -830,7 +830,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
                     result, error = None, exc
                 AppHelper.callAfter(self._work_done, key, result, error, success, quiet)
 
-        threading.Thread(target=worker, name="Switchyard-" + key, daemon=True).start()
+        threading.Thread(target=worker, name="Loqalyn-" + key, daemon=True).start()
 
     @objc.python_method
     def _work_done(self, key, result, error, success, quiet):
@@ -842,7 +842,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
             return
         if error:
             if key == "quit-check":
-                if self._confirm("Quit Switchyard?", "The service's active-request status could not be read. Quitting may interrupt requests. " + str(error), "Quit", destructive=True):
+                if self._confirm("Quit Loqalyn?", "The service's active-request status could not be read. Quitting may interrupt requests. " + str(error), "Quit", destructive=True):
                     self._begin_shutdown()
                 else:
                     self._cancel_quit()
@@ -898,7 +898,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
             if not quiet:
                 self._start()
             return
-        path = "/switchyard/refresh" if discover else "/switchyard/status"
+        path = "/loqalyn/refresh" if discover else "/loqalyn/status"
         self._work("refresh", lambda: self.controller.call(path, "POST" if discover else "GET", {} if discover else None), self._apply_state, quiet=quiet)
         if not quiet:
             self._status("Discovering runtime models…" if discover else "Refreshing workspace…")
@@ -1044,7 +1044,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
             raise ValueError(reason)
         body = {"model": model["id"], "context": min(8192, model["context_max"])}
         self._status("Loading " + model["name"] + "…")
-        self._work("model", lambda: self.controller.call("/switchyard/models/load", "POST", body), self._model_changed)
+        self._work("model", lambda: self.controller.call("/loqalyn/models/load", "POST", body), self._model_changed)
 
     @objc.python_method
     def _unload_model(self):
@@ -1053,7 +1053,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         if reason:
             raise ValueError(reason)
         self._status("Unloading " + model["name"] + "…")
-        self._work("model", lambda: self.controller.call("/switchyard/models/unload", "POST", {"model": model["id"]}), self._model_changed)
+        self._work("model", lambda: self.controller.call("/loqalyn/models/unload", "POST", {"model": model["id"]}), self._model_changed)
 
     @objc.python_method
     def _model_changed(self, state):
@@ -1085,14 +1085,14 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         values = {key: str(field.stringValue()) for key, field in fields.items()}
         values.update(tier=self._popup_value(tier), tools_verified=verified.state() == C.NSControlStateValueOn)
         patch = model_patch(values)
-        self._work("model", lambda: self.controller.call("/switchyard/models/configure", "POST", {"model": model["id"], "values": patch}), self._model_changed)
+        self._work("model", lambda: self.controller.call("/loqalyn/models/configure", "POST", {"model": model["id"], "values": patch}), self._model_changed)
 
     @objc.python_method
     def _recover_runtime(self):
         model = self._chosen_model()
         runtime = model["runtime"]
         if self._confirm("Recover " + RUNTIME_NAMES.get(runtime, runtime) + "?", "First quit and restart this runtime. Recovery rechecks its inventory and clears uncertain reservations only after that explicit restart. Have you restarted it?", "I restarted it; recover"):
-            self._work("model", lambda: self.controller.call("/switchyard/recover", "POST", {"runtime": runtime, "confirmed_runtime_restarted": True}), self._model_changed)
+            self._work("model", lambda: self.controller.call("/loqalyn/recover", "POST", {"runtime": runtime, "confirmed_runtime_restarted": True}), self._model_changed)
 
     @objc.python_method
     def _download_model(self):
@@ -1116,12 +1116,12 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         if confirm.state() != C.NSControlStateValueOn:
             raise ValueError("Select the download authorization checkbox first.")
         body = {"runtime": self._popup_value(runtime), "model": name, "confirmed": True}
-        self._work("download", lambda: self.controller.call("/switchyard/pull", "POST", body), self._download_started)
+        self._work("download", lambda: self.controller.call("/loqalyn/pull", "POST", body), self._download_started)
 
     @objc.python_method
     def _download_started(self, result):
         self.job_ids.add(result["id"])
-        self._status("Download started. Switchyard will check progress while it runs.")
+        self._status("Download started. Loqalyn will check progress while it runs.")
         self.download_states[result["id"]] = result
         self._render_downloads()
 
@@ -1135,7 +1135,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
                 self.job_ids.discard(job_id)
                 self._status("Download " + str(status) + (": " + str(result["error"]) if result.get("error") else "."))
                 self._refresh(True, quiet=True)
-        self._work("job-" + job_id, lambda: self.controller.call("/switchyard/jobs/" + quote(job_id, safe="")), done, quiet=True)
+        self._work("job-" + job_id, lambda: self.controller.call("/loqalyn/jobs/" + quote(job_id, safe="")), done, quiet=True)
 
     @objc.python_method
     def _update_play_models(self):
@@ -1158,7 +1158,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         def done(result):
             self.play_trace.setString_(decision_text(result))
             self.play_status.setStringValue_("Route evaluated. No generation, loading, or provider request was performed.")
-        self._work("route", lambda: self.controller.call("/switchyard/route", "POST", body), done)
+        self._work("route", lambda: self.controller.call("/loqalyn/route", "POST", body), done)
 
     @objc.python_method
     def _generate(self):
@@ -1217,7 +1217,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         self.play_status.setStringValue_((str(result["model"]) + " · " if result.get("model") else "") + status)
         request_id = result.get("request_id")
         if request_id and (self.state or {}).get('policy',{}).get('log_retention_days',30)>0:
-            self._work("generation-decision", lambda: self.controller.call("/switchyard/decisions/" + quote(request_id, safe="")), lambda decision: self.play_trace.setString_(decision_text(decision)), quiet=True)
+            self._work("generation-decision", lambda: self.controller.call("/loqalyn/decisions/" + quote(request_id, safe="")), lambda decision: self.play_trace.setString_(decision_text(decision)), quiet=True)
         elif request_id:
             self.play_trace.setString_("Decision history is disabled in Settings. Use Evaluate route to inspect a route without saving it.")
         self._refresh(False, quiet=True)
@@ -1240,9 +1240,9 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         policy = policy_yaml(str(self.policy_editor.string()))
         baseline = copy.deepcopy(self.policy_base)
         def save():
-            if self.controller.call('/switchyard/policy') != baseline:
+            if self.controller.call('/loqalyn/policy') != baseline:
                 raise ValueError('Saved settings changed while this policy was being edited. Reload the policy before saving.')
-            return self.controller.call('/switchyard/policy', 'PUT', policy)
+            return self.controller.call('/loqalyn/policy', 'PUT', policy)
         def done(result):
             self._fill_policy(result)
             self.policy_note.setStringValue_("Policy saved. Future requests use these settings.")
@@ -1252,7 +1252,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
     @objc.python_method
     def _reload_policy(self):
         if self._confirm("Reload saved policy?", "This replaces the YAML editor with the current saved policy. Unsaved editor changes will be discarded.", "Reload"):
-            self._work("policy", lambda: self.controller.call("/switchyard/policy"), self._fill_policy)
+            self._work("policy", lambda: self.controller.call("/loqalyn/policy"), self._fill_policy)
 
     @objc.python_method
     def _fill_settings(self, policy):
@@ -1283,11 +1283,11 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         # Validate locally, then merge these form fields into freshly read policy.
         settings_policy(self.state["policy"], values)
         def save():
-            current = self.controller.call("/switchyard/policy")
+            current = self.controller.call("/loqalyn/policy")
             if current != self.settings_base:
                 raise ValueError('Saved policy changed while these settings were being edited. Reload settings before saving.')
             policy = settings_policy(current, values)
-            return self.controller.call("/switchyard/policy", "PUT", policy)
+            return self.controller.call("/loqalyn/policy", "PUT", policy)
         def done(policy):
             self._fill_settings(policy)
             self._status("Settings saved.")
@@ -1297,7 +1297,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
     @objc.python_method
     def _reload_settings(self):
         if self._confirm("Reload saved settings?", "Unsaved changes on this Settings page will be discarded.", "Reload"):
-            self._work("settings", lambda: self.controller.call("/switchyard/policy"), self._fill_settings)
+            self._work("settings", lambda: self.controller.call("/loqalyn/policy"), self._fill_settings)
 
     @objc.python_method
     def _save_key(self):
@@ -1345,7 +1345,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
             self.review_response.setString_(pretty(value["result"]) if value.get("result") else "")
             self.review_note.setStringValue_(f"Status: {value.get('status', 'unknown')}. " + ("Redact messages, system instructions and tools, then preview." if value.get("status") == "pending" else "This request is no longer pending."))
             self._sync_buttons()
-        self._work("detail-" + request_id, lambda: self.controller.call("/switchyard/escalations/" + quote(request_id, safe="")), done)
+        self._work("detail-" + request_id, lambda: self.controller.call("/loqalyn/escalations/" + quote(request_id, safe="")), done)
 
     def controlTextDidChange_(self, notification):
         if notification.object() == self.review_model:
@@ -1390,7 +1390,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
             tags = result.get("tags", [])
             self.review_note.setStringValue_("Approval blocked. Redact these detections and preview again: " + ", ".join(tags) if tags else "Review the exact outgoing payload below. The scanner is a heuristic, not a guarantee that every secret was found.")
             self._sync_buttons()
-        self._work("review", lambda: self.controller.call("/switchyard/escalations/" + quote(current["request_id"], safe=""), "POST", body), done)
+        self._work("review", lambda: self.controller.call("/loqalyn/escalations/" + quote(current["request_id"], safe=""), "POST", body), done)
 
     @objc.python_method
     def _approve_escalation(self):
@@ -1409,7 +1409,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
             else:
                 self._status("Provider request completed. Select the approved request to read its response.")
             self._refresh(False, quiet=True)
-        self._work("review", lambda: self.controller.call("/switchyard/escalations/" + quote(current["request_id"], safe=""), "POST", body), done)
+        self._work("review", lambda: self.controller.call("/loqalyn/escalations/" + quote(current["request_id"], safe=""), "POST", body), done)
 
     @objc.python_method
     def _deny_escalation(self):
@@ -1427,7 +1427,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
                 self.review_outgoing.setString_("")
             self._status("Kept local. No provider request was sent.")
             self._refresh(False, quiet=True)
-        self._work("review", lambda: self.controller.call("/switchyard/escalations/" + quote(request_id, safe=""), "POST", {"action": "deny"}), done)
+        self._work("review", lambda: self.controller.call("/loqalyn/escalations/" + quote(request_id, safe=""), "POST", {"action": "deny"}), done)
 
     @objc.python_method
     def _copy_endpoint(self):
@@ -1463,11 +1463,11 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
 
     @objc.python_method
     def _export_policy(self):
-        self._save_text("switchyard-policy.yaml", str(self.policy_editor.string()))
+        self._save_text("loqalyn-policy.yaml", str(self.policy_editor.string()))
 
     @objc.python_method
     def _export_activity(self):
-        self._save_text("switchyard-decisions.json", pretty((self.state or {}).get("decisions", [])))
+        self._save_text("loqalyn-decisions.json", pretty((self.state or {}).get("decisions", [])))
 
 
 _APP_DELEGATE = None
@@ -1477,12 +1477,12 @@ def run_app(controller):
     """Create the native application and run Cocoa's main-thread event loop."""
     if threading.current_thread() is not threading.main_thread():
         raise RuntimeError("The macOS interface must start on the main thread.")
-    F.NSProcessInfo.processInfo().setProcessName_("Switchyard")
+    F.NSProcessInfo.processInfo().setProcessName_("Loqalyn")
     application = C.NSApplication.sharedApplication()
     application.setActivationPolicy_(C.NSApplicationActivationPolicyRegular)
-    resources = os.environ.get("SWITCHYARD_RESOURCES")
+    resources = os.environ.get("LOQALYN_RESOURCES")
     if resources:
-        icon = C.NSImage.alloc().initWithContentsOfFile_(str(Path(resources) / "Switchyard.icns"))
+        icon = C.NSImage.alloc().initWithContentsOfFile_(str(Path(resources) / "Loqalyn.icns"))
         if icon is not None:
             application.setApplicationIconImage_(icon)
     global _APP_DELEGATE

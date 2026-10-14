@@ -253,7 +253,7 @@ class Journal:
         if not path.exists():
             fd=os.open(path,os.O_CREAT|os.O_EXCL|os.O_WRONLY|os.O_NOFOLLOW,0o600); os.close(fd)
         if tuple(int(x) for x in apsw.sqlitelibversion().split('.')) < (3,54,0):
-            raise ValueError('Switchyard requires SQLite 3.54.0 or newer through APSW.')
+            raise ValueError('Loqalyn requires SQLite 3.54.0 or newer through APSW.')
         self.db=apsw.Connection(str(path), flags=apsw.SQLITE_OPEN_READWRITE|apsw.SQLITE_OPEN_NOFOLLOW)
         self.db.enable_load_extension(False)
         self.db.config(apsw.SQLITE_DBCONFIG_DEFENSIVE,True)
@@ -479,7 +479,7 @@ class Ledger:
     def __init__(self, models, adapters, config, journal):
         self.models = models; self.adapters = adapters; self.config = config; self.journal = journal
         self.lock = asyncio.Lock(); self.model_locks = {}; self.uncertain_runtimes = set()
-        self._leases = {}; self._context_leases = contextvars.ContextVar('switchyard_leases', default=None)
+        self._leases = {}; self._context_leases = contextvars.ContextVar('loqalyn_leases', default=None)
         self.revisions = {}
 
     def changed(self, runtime):

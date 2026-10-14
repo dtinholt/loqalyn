@@ -1,5 +1,7 @@
 # Static analysis review
 
+> Historical document: this project was renamed from Switchyard to Loqalyn in Alpha 3. Original names, commands, measurements and evidence below describe the version reviewed at that time.
+
 Bandit 1.9.4 inspected the application, macOS bootstrap/builder and support scripts with no scan errors and no suppressed checks. The [raw report](evidence/static-analysis.json) contains **38 findings: 1 high, 5 medium and 32 low**. A scanner's severity is a review cue, not evidence that the code is exploitable. The findings were reviewed as follows; no confirmed high/medium exploitable issue was identified within the documented single-user threat model.
 
 | Rule | Count | Review |

@@ -1,0 +1,18 @@
+{
+  "version": "0.3.0a3",
+  "all_modules_match": true,
+  "modules": {
+    "__init__.py": "03e9312981f4ee00c06657545ed87fdae05388753b7cfc7b5be1b9250ec57de7",
+    "adapters.py": "ec152a11c879b55ce8ef7a824f207c81523ee9acc9a286a3910c16633c01fd6e",
+    "cli.py": "13849f8543608ffc114d9dff8c8d475cbd7abf365dcaa2e3f0dd4fb9c56c3b9c",
+    "core.py": "b643a14cf01dfaff9cbc20cbe9bcc471c561c00808bb454ad672350daa437b96",
+    "desktop.py": "eac85b43f50d554ccd2a0ab86d4a4abce4436a8e5832bf669b51fdc68ed6b56a",
+    "desktop_presenter.py": "30cea46b7351036e7fc6ae5c12934a327c68936d60bcf437c8207705b40d8cf4",
+    "desktop_style.py": "21a7687c799039ae894c9f8b13e43a5626553cc8817b97610dcb003b164909f4",
+    "desktop_ui.py": "1396a6a6479c3f7ad2b86129ab9201419b5bb78c1c662efee474f14c57aaf960",
+    "hub.py": "c671a7aaf4caad07527828c7187057f7c7ffcfab508396eedc6c2947398618fd",
+    "identity.py": "1ea80544b79c662817499eb911bae21b6e286e03d3adabd7b401a3a7b223426f",
+    "security.py": "558259e587f3ae3ddb2be4ed93ce4ccc99ac5e26806600284c34271b11c36d69",
+    "server.py": "27ebd0d80dac0ee59b02609024aa3f25cde8e94f88d6bba0034589e67e480794"
+  }
+}

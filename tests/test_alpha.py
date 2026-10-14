@@ -11,10 +11,10 @@ from unittest.mock import patch
 
 import aiohttp
 from aiohttp.test_utils import TestClient, TestServer
-from switchyard import security
-from switchyard.core import Config, Journal, Model, Fault, DEFAULTS, atomic_yaml, route, inspect_payload, validate_policy, validate_runtime_url
-from switchyard.server import create_app, Service
-from switchyard.adapters import complete, anthropic_request
+from loqalyn import security
+from loqalyn.core import Config, Journal, Model, Fault, DEFAULTS, atomic_yaml, route, inspect_payload, validate_policy, validate_runtime_url
+from loqalyn.server import create_app, Service
+from loqalyn.adapters import complete, anthropic_request
 from tests.fixtures import Runtime
 
 
@@ -177,22 +177,22 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
     async def test_authenticated_dashboard_no_embedded_token(self):
         r=await self.client.get('/',headers=self.auth); self.assertEqual(r.status,200); self.assertNotIn(self.s.token,await r.text())
     async def test_all_control_endpoints_require_auth(self):
-        for method,path in [('GET','/switchyard/status'),('GET','/v1/models'),('POST','/switchyard/route'),('POST','/switchyard/pull'),('PUT','/switchyard/policy'),('GET','/app.js'),('POST','/v1/messages')]:
+        for method,path in [('GET','/loqalyn/status'),('GET','/v1/models'),('POST','/loqalyn/route'),('POST','/loqalyn/pull'),('PUT','/loqalyn/policy'),('GET','/app.js'),('POST','/v1/messages')]:
             r=await self.client.request(method,path,json={}); self.assertEqual(r.status,401,path)
     async def test_bad_origins_hosts(self):
         for headers in ({'Origin':'http://['},{'Origin':'null'},{'Origin':'https://evil.test'},{'Host':'evil.test'},{'Host':'attacker@localhost'}):
             r=await self.client.get('/health',headers=headers); self.assertEqual(r.status,403,headers)
     async def test_nonascii_token(self):
-        r=await self.client.get('/switchyard/status',headers={'Authorization':'Bearer é'}); self.assertEqual(r.status,401)
+        r=await self.client.get('/loqalyn/status',headers={'Authorization':'Bearer é'}); self.assertEqual(r.status,401)
     async def test_health_is_minimal(self):
         r=await self.client.get('/health'); self.assertEqual(set(await r.json()),{'ok','version'})
     async def test_bad_json(self):
         for data in ('[]','{"a":NaN}','{"a":1,"a":2}','['*2000+'0'+']'*2000):
-            r=await self.client.post('/switchyard/route',data=data,headers={**self.auth,'Content-Type':'application/json'}); self.assertEqual(r.status,400)
+            r=await self.client.post('/loqalyn/route',data=data,headers={**self.auth,'Content-Type':'application/json'}); self.assertEqual(r.status,400)
     async def test_body_size(self):
-        r=await self.post('/switchyard/route',request('x'*(2*1024*1024))); self.assertEqual(r.status,413)
+        r=await self.post('/loqalyn/route',request('x'*(2*1024*1024))); self.assertEqual(r.status,413)
     async def test_dry_run_no_runtime_work(self):
-        r=await self.post('/switchyard/route'); self.assertEqual(r.status,200)
+        r=await self.post('/loqalyn/route'); self.assertEqual(r.status,200)
         self.assertEqual(self.ollama.loads+self.lm.loads+self.ollama.generations+self.lm.generations,0)
         self.assertEqual(len(self.s.journal.recent()),0)
     async def test_locality_required(self):
@@ -203,7 +203,7 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         for name in ('ollama','lmstudio'):
             r=await self.post('/v1/chat/completions',request(model=f'{name}/fixture-chat-0'))
             self.assertEqual(r.status,200,await r.text()); b=await r.json(); self.assertEqual(b['choices'][0]['message']['content'],'fixture reply')
-            d=self.s.journal.get(r.headers['X-Switchyard-Request-Id']); self.assertEqual(d['model'],b['model']); self.assertEqual(d['status'],'completed')
+            d=self.s.journal.get(r.headers['X-Loqalyn-Request-Id']); self.assertEqual(d['model'],b['model']); self.assertEqual(d['status'],'completed')
     async def test_sse_both_runtimes(self):
         for name in ('ollama','lmstudio'):
             r=await self.post('/v1/chat/completions',request(model=f'{name}/fixture-chat-0',stream=True)); t=await r.text()
@@ -228,7 +228,7 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
     async def test_late_stream_error_no_done(self):
         r=await self.post('/v1/chat/completions',request('[mid]',stream=True)); t=await r.text()
         self.assertIn('partial output was not retried',t); self.assertNotIn('[DONE]',t)
-        self.assertEqual(self.s.journal.get(r.headers['X-Switchyard-Request-Id'])['status'],'failed')
+        self.assertEqual(self.s.journal.get(r.headers['X-Loqalyn-Request-Id'])['status'],'failed')
     async def test_schema_failure_is_failure(self):
         r=await self.post('/v1/chat/completions',request(response_format={'type':'json_object'}))
         self.assertEqual(r.status,502); self.assertEqual(self.s.journal.recent()[0]['status'],'failed')
@@ -263,28 +263,28 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.s.models['ollama/fixture-chat-0'].state_uncertain)
         r=await self.post('/v1/chat/completions',request(model='lmstudio/fixture-chat-0')); self.assertEqual(r.status,503)
         self.ollama.fail_load=False
-        r=await self.post('/switchyard/recover',{'runtime':'ollama','confirmed_runtime_restarted':True}); self.assertEqual(r.status,200)
+        r=await self.post('/loqalyn/recover',{'runtime':'ollama','confirmed_runtime_restarted':True}); self.assertEqual(r.status,200)
         r=await self.post('/v1/chat/completions'); self.assertEqual(r.status,200)
     async def test_external_instance_not_unloaded(self):
         self.ollama.loaded['fixture-chat-0']=8192; await self.s.refresh()
-        r=await self.post('/switchyard/models/unload',{'model':'ollama/fixture-chat-0'}); self.assertEqual(r.status,409)
+        r=await self.post('/loqalyn/models/unload',{'model':'ollama/fixture-chat-0'}); self.assertEqual(r.status,409)
         self.assertEqual(self.ollama.unloads,0)
     async def test_active_model_not_evicted(self):
         r=await self.post('/v1/chat/completions',request('[slow]',stream=True)); await r.content.read(5)
-        d=self.s.journal.get(r.headers['X-Switchyard-Request-Id'])
-        unload=await self.post('/switchyard/models/unload',{'model':d['model']}); self.assertEqual(unload.status,409)
+        d=self.s.journal.get(r.headers['X-Loqalyn-Request-Id'])
+        unload=await self.post('/loqalyn/models/unload',{'model':d['model']}); self.assertEqual(unload.status,409)
         r.close(); await asyncio.sleep(.1); self.assertEqual(self.ollama.evicted_active+self.lm.evicted_active,0)
     async def test_approval_off_blocks_old_pending(self):
         d=self.s.decision(request('prove a theorem')); self.s.queue(d,request('prove a theorem'))
         p=copy.deepcopy(self.s.config.data); p['escalation_mode']='off'; self.s.config.save(p)
-        r=await self.post('/switchyard/escalations/'+d['id'],{'action':'preview','provider':'openai','model':'test','payload':request()})
+        r=await self.post('/loqalyn/escalations/'+d['id'],{'action':'preview','provider':'openai','model':'test','payload':request()})
         self.assertEqual(r.status,403)
     async def test_approval_tampering_and_sensitive_content(self):
         d=self.s.decision(request('prove a theorem')); self.s.queue(d,request())
         payload={'action':'preview','provider':'openai','model':'test','payload':request('user@example.test')}
-        r=await self.post('/switchyard/escalations/'+d['id'],payload); preview=await r.json(); self.assertIn('email',preview['tags'])
-        payload.update(action='approve',confirmed=True,hash=preview['hash']); r=await self.post('/switchyard/escalations/'+d['id'],payload); self.assertEqual(r.status,403)
-        payload['payload']=request('safe'); r=await self.post('/switchyard/escalations/'+d['id'],payload); self.assertEqual(r.status,403)
+        r=await self.post('/loqalyn/escalations/'+d['id'],payload); preview=await r.json(); self.assertIn('email',preview['tags'])
+        payload.update(action='approve',confirmed=True,hash=preview['hash']); r=await self.post('/loqalyn/escalations/'+d['id'],payload); self.assertEqual(r.status,403)
+        payload['payload']=request('safe'); r=await self.post('/loqalyn/escalations/'+d['id'],payload); self.assertEqual(r.status,403)
     async def test_approved_send_exactly_once_without_external_network(self):
         import types
         from aiohttp import web
@@ -296,7 +296,7 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         server=TestServer(peer); await server.start_server()
         d=self.s.decision(request('prove a theorem')); self.s.queue(d,request())
         body={'action':'preview','provider':'openai','model':'fixture-model','payload':request()}
-        r=await self.post('/switchyard/escalations/'+d['id'],body); preview=await r.json()
+        r=await self.post('/loqalyn/escalations/'+d['id'],body); preview=await r.json()
         body.update(action='approve',confirmed=True,hash=preview['hash'])
         real_post=self.s.session.post
         def local_post(url,**kwargs):
@@ -306,8 +306,8 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         class FakeKeyring:
             def get_password(self,*args): return 'fixture-not-a-secret'
         try:
-            with patch('switchyard.server.sys.platform','darwin'),patch.dict('sys.modules',{'keyring.backends.macOS':types.SimpleNamespace(Keyring=FakeKeyring)}),patch.object(self.s.session,'post',side_effect=local_post):
-                responses=await asyncio.gather(*(self.post('/switchyard/escalations/'+d['id'],body) for _ in range(8)))
+            with patch('loqalyn.server.sys.platform','darwin'),patch.dict('sys.modules',{'keyring.backends.macOS':types.SimpleNamespace(Keyring=FakeKeyring)}),patch.object(self.s.session,'post',side_effect=local_post):
+                responses=await asyncio.gather(*(self.post('/loqalyn/escalations/'+d['id'],body) for _ in range(8)))
                 self.assertEqual(sum(r.status==200 for r in responses),1)
                 self.assertEqual(sum(r.status==409 for r in responses),7)
                 for response in responses: await response.read()
@@ -328,7 +328,7 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_denial_cannot_reopen(self):
         d=self.s.decision(request('prove a theorem')); self.s.queue(d,request())
-        r=await self.post('/switchyard/escalations/'+d['id'],{'action':'deny'}); self.assertEqual(r.status,200)
+        r=await self.post('/loqalyn/escalations/'+d['id'],{'action':'deny'}); self.assertEqual(r.status,200)
         self.s.queue(d,request()); self.assertEqual(self.s.pending[d['id']]['status'],'denied'); self.assertNotIn('payload',self.s.pending[d['id']])
     async def test_expiry_on_state_access(self):
         d=self.s.decision(request('prove a theorem')); self.s.queue(d,request()); self.s.pending[d['id']]['created']=time.time()-1900
@@ -339,7 +339,7 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
             d=self.s.decision(request('prove a theorem')); self.s.queue(d,request())
         self.assertLessEqual(len(self.s.pending),32)
     async def test_control_size_and_load_validation(self):
-        r=await self.post('/switchyard/models/load',{'model':'ollama/fixture-chat-0','context':True}); self.assertEqual(r.status,400)
+        r=await self.post('/loqalyn/models/load',{'model':'ollama/fixture-chat-0','context':True}); self.assertEqual(r.status,400)
     async def test_log_no_request_content(self):
         r=await self.post('/v1/chat/completions',request('PRIVATE-SENTINEL-927')); await r.read()
         self.assertNotIn('PRIVATE-SENTINEL-927',json.dumps(self.s.journal.recent()))

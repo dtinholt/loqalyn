@@ -9,6 +9,7 @@ from .hub import HubCatalogue
 from .core import Config, Journal, Ledger, Fault, Model, route, inspect_payload, atomic_yaml, validate_catalog_patch, validate_policy
 from .adapters import Adapter, anthropic_request, anthropic_response, complete
 from .security import api_token, loads, MAX_BODY, MAX_RESPONSE, read_response, privacy_tags
+from .identity import setting, keychain_password
 
 class Service:
     def __init__(self,path):
@@ -43,7 +44,7 @@ class Service:
             for id,m in list(self.models.items()):
                 if m.runtime==name and not m.loaded and not m.state_uncertain: del self.models[id]
         for name,url in self.config.data['runtimes'].items():
-            token=os.environ.get('SWITCHYARD_LM_TOKEN') if name=='lmstudio' else None
+            token=setting('LM_TOKEN') if name=='lmstudio' else None
             old=previous.get(name)
             if old and old.url!=url.rstrip('/'):
                 self.health.pop(name,None)
@@ -196,7 +197,7 @@ async def guard(request,handler):
             auth=request.headers.get('Authorization','')
             supplied=auth[7:] if auth.startswith('Bearer ') else request.headers.get('x-api-key','')
             if not supplied or not hmac.compare_digest(supplied.encode(),s.token.encode()):
-                raise Fault('Use the local API token from Switchyard Settings.','unauthorized',401)
+                raise Fault('Use the local API token from Loqalyn Settings.','unauthorized',401)
             category='inference' if request.path in ('/v1/chat/completions','/v1/messages') else 'control'
             if s.inflight[category]>=(32 if category=='inference' else 16):
                 category=None; s.metrics['overloaded']+=1
@@ -206,7 +207,8 @@ async def guard(request,handler):
         response=await handler(request)
     except Fault as e:
         headers={'Retry-After':'3'} if e.status==503 else {}
-        response=web.json_response({'error':{'message':str(e),'code':e.code,'type':'switchyard_error','details':e.details}},status=e.status,headers=headers)
+        error_type='switchyard_error' if request.path.startswith('/switchyard/') else 'loqalyn_error'
+        response=web.json_response({'error':{'message':str(e),'code':e.code,'type':error_type,'details':e.details}},status=e.status,headers=headers)
     except web.HTTPException as e:
         response=web.json_response({'error':{'message':e.reason,'code':'http_error'}},status=e.status)
     except (ValueError,TypeError,KeyError,AttributeError,RecursionError,yaml.YAMLError):
@@ -231,18 +233,19 @@ async def body_json(request):
     return body
 
 def headers(d):
-    return {'X-Switchyard-Request-Id':d['id'],'X-Switchyard-Model':d.get('model') or 'none','X-Switchyard-Route':d['route'],
-        'X-Switchyard-Runtime':d.get('runtime') or 'none','X-Switchyard-Warming':str(not d['warm']).lower(),
-        'X-Switchyard-Escalate':('suggested; reason='+d['escalation']) if d['escalation'] else 'none'}
+    current = {'X-Loqalyn-Request-Id':d['id'],'X-Loqalyn-Model':d.get('model') or 'none','X-Loqalyn-Route':d['route'],
+        'X-Loqalyn-Runtime':d.get('runtime') or 'none','X-Loqalyn-Warming':str(not d['warm']).lower(),
+        'X-Loqalyn-Escalate':('suggested; reason='+d['escalation']) if d['escalation'] else 'none'}
+    return {**current, **{k.replace('X-Loqalyn-', 'X-Switchyard-'):v for k,v in current.items()}}
 
 async def index(request):
-    return web.json_response({'name':'Switchyard','version':__version__,'interface':'Open the native Switchyard app or use the authenticated API.','models':'/v1/models','status':'/switchyard/status'})
+    return web.json_response({'name':'Loqalyn','version':__version__,'interface':'Open the native Loqalyn app or use the authenticated API.','models':'/v1/models','status':'/loqalyn/status'})
 async def status(request): return web.json_response(request.app['service'].state())
 async def refresh(request): await request.app['service'].refresh(); return await status(request)
 async def catalog(request): return web.json_response({'models':[m.public() for m in request.app['service'].models.values()]})
 async def models(request):
     s=request.app['service']; names=['auto','auto-fast','auto-code']+list(s.models)
-    return web.json_response({'object':'list','data':[{'id':x,'object':'model','created':0,'owned_by':'switchyard'} for x in names]})
+    return web.json_response({'object':'list','data':[{'id':x,'object':'model','created':0,'owned_by':'loqalyn'} for x in names]})
 async def dry_run(request): return web.json_response(request.app['service'].decision(await body_json(request)))
 async def decisions(request): return web.json_response({'decisions':request.app['service'].journal.recent()})
 async def decision_by_id(request):
@@ -476,8 +479,8 @@ async def escalation(request):
     if check['tags']: raise Fault('Redact all detected sensitive content before sending. The scanner is a heuristic; review the entire payload.','privacy_blocked',403)
     if sys.platform!='darwin': raise Fault('Frontier credentials require the macOS Keychain.','keychain_required',503)
     from keyring.backends.macOS import Keyring
-    key=Keyring().get_password('switchyard',provider)
-    if not key: raise Fault(f'Save your {provider} API key in Switchyard Settings first, or use yard key {provider}.','provider_not_configured',409)
+    key=keychain_password(Keyring(),provider)
+    if not key: raise Fault(f'Save your {provider} API key in Loqalyn Settings first, or use loqalyn key {provider}.','provider_not_configured',409)
     p['status']='sending'; p['provider']=provider; p['frontier_model']=model
     if provider=='openai': url='https://api.openai.com/v1/chat/completions'; hdr={'Authorization':'Bearer '+key}
     else:
@@ -488,7 +491,7 @@ async def escalation(request):
             result=await read_response(r,MAX_RESPONSE)
         p['status']='approved'; p['result']=result; p.pop('payload',None); p['payload_bytes']=0
         s.journal.event('approved_escalation',{'id':p['id'],'provider':provider,'model':model,'payload_hash':fingerprint})
-        return web.json_response({'status':'approved','result':result},headers={'X-Switchyard-Served-By':f'frontier/{model}'})
+        return web.json_response({'status':'approved','result':result},headers={'X-Loqalyn-Served-By':f'frontier/{model}','X-Switchyard-Served-By':f'frontier/{model}'})
     except BaseException:
         # Never retry implicitly: the provider may already have accepted the request.
         p['status']='failed'; p.pop('payload',None); p['payload_bytes']=0; raise
@@ -574,14 +577,15 @@ async def create_app(path):
     async def health(request): return web.json_response({'ok':True,'version':__version__})
     app.router.add_get('/',index); app.router.add_get('/health',health)
     app.router.add_get('/v1/models',models); app.router.add_post('/v1/chat/completions',inference); app.router.add_post('/v1/messages',inference)
-    app.router.add_get('/switchyard/status',status); app.router.add_post('/switchyard/refresh',refresh); app.router.add_get('/switchyard/catalog',catalog)
-    app.router.add_post('/switchyard/route',dry_run); app.router.add_get('/switchyard/decisions',decisions); app.router.add_get('/switchyard/decisions/{id}',decision_by_id)
-    app.router.add_get('/switchyard/policy',policy); app.router.add_put('/switchyard/policy',policy)
-    app.router.add_post('/switchyard/models/{action:load|unload|configure}',model_action)
-    app.router.add_post('/switchyard/recover',recover)
-    app.router.add_get('/switchyard/escalations',queue_list); app.router.add_get('/switchyard/escalations/{id}',queue_detail); app.router.add_post('/switchyard/escalations/{id}',escalation)
-    app.router.add_post('/switchyard/pull',pull); app.router.add_get('/switchyard/jobs/{id}',job); app.router.add_post('/switchyard/jobs/{id}/cancel',job)
-    app.router.add_post('/switchyard/hub/search',hub_search); app.router.add_post('/switchyard/hub/inspect',hub_inspect); app.router.add_post('/switchyard/hub/install',hub_install)
+    for prefix in ('/loqalyn', '/switchyard'):
+        app.router.add_get(prefix+'/status',status); app.router.add_post(prefix+'/refresh',refresh); app.router.add_get(prefix+'/catalog',catalog)
+        app.router.add_post(prefix+'/route',dry_run); app.router.add_get(prefix+'/decisions',decisions); app.router.add_get(prefix+'/decisions/{id}',decision_by_id)
+        app.router.add_get(prefix+'/policy',policy); app.router.add_put(prefix+'/policy',policy)
+        app.router.add_post(prefix+'/models/{action:load|unload|configure}',model_action)
+        app.router.add_post(prefix+'/recover',recover)
+        app.router.add_get(prefix+'/escalations',queue_list); app.router.add_get(prefix+'/escalations/{id}',queue_detail); app.router.add_post(prefix+'/escalations/{id}',escalation)
+        app.router.add_post(prefix+'/pull',pull); app.router.add_get(prefix+'/jobs/{id}',job); app.router.add_post(prefix+'/jobs/{id}/cancel',job)
+        app.router.add_post(prefix+'/hub/search',hub_search); app.router.add_post(prefix+'/hub/inspect',hub_inspect); app.router.add_post(prefix+'/hub/install',hub_install)
     async def start(app): await s.start()
     async def stop(app): await s.stop()
     app.on_startup.append(start); app.on_cleanup.append(stop)

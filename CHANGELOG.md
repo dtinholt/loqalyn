@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0-alpha.3 — 2026-10-14
+
+- Rename the app and public project to **Loqalyn** to avoid confusion with NVIDIA NeMo Switchyard.
+- Rename the native application, menus, bundle, Python package, primary CLI, documentation and release artifacts.
+- Preserve existing profiles in place, read legacy Keychain credentials when needed, and retain old environment variables, CLI and HTTP API aliases.
+- Add upgrade and compatibility regression tests; rebuild and validate the Mac app. See [rename notes](docs/RENAME.md).
+
 ## 0.3.0-alpha.2 — 2026-10-14
 
 - Add a native Discover page for public Hugging Face GGUF search, repository inspection, file sizes/licenses, confirmed Ollama install, progress and cancellation.

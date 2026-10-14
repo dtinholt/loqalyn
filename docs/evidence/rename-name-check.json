@@ -1,0 +1,40 @@
+{
+  "name": "Loqalyn",
+  "checked_on": "2026-10-14",
+  "checks": [
+    {
+      "service": "pypi",
+      "url": "https://pypi.org/pypi/loqalyn/json",
+      "http_status": 404,
+      "exists": false
+    },
+    {
+      "service": "npm",
+      "url": "https://registry.npmjs.org/loqalyn",
+      "http_status": 404,
+      "exists": false
+    },
+    {
+      "service": "huggingface",
+      "url": "https://huggingface.co/api/models?search=loqalyn&limit=10",
+      "matches": []
+    },
+    {
+      "service": "apple",
+      "url": "https://itunes.apple.com/search?term=loqalyn&entity=macSoftware&limit=20",
+      "matches": []
+    },
+    {
+      "service": "com_domain",
+      "url": "https://rdap.verisign.com/com/v1/domain/loqalyn.com",
+      "http_status": 404,
+      "exists": false
+    },
+    {
+      "service": "github",
+      "total_count": 0,
+      "repositories": []
+    }
+  ],
+  "scope": "Pre-publication public name screening; not a trademark clearance or reservation."
+}

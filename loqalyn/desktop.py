@@ -24,6 +24,7 @@ from aiohttp import web
 
 from .server import create_app
 from .security import private_directory, private_file, loads
+from .identity import profile_directory, setting, keychain_password
 
 
 class DesktopError(RuntimeError):
@@ -36,7 +37,7 @@ class DesktopController:
     def __init__(self, data_dir: Path | None = None, port: int = 8741, *, use_keychain=True):
         if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
             raise ValueError('Choose a port between 1 and 65535.')
-        self.data_dir = Path(data_dir) if data_dir is not None else Path.home() / 'Library' / 'Application Support' / 'Switchyard'
+        self.data_dir = Path(data_dir) if data_dir is not None else profile_directory(native=True)
         self.port = port
         self.endpoint = f'http://127.0.0.1:{port}'
         self._token = ''
@@ -72,7 +73,7 @@ class DesktopController:
                     sock.setblocking(False)
                 except OSError as exc:
                     sock.close()
-                    raise DesktopError(f'Port {self.port} is already in use or unavailable. Quit any other Switchyard app or yard service, then reopen Switchyard.', {'code': 'port_unavailable'}) from exc
+                    raise DesktopError(f'Port {self.port} is already in use or unavailable. Quit any other Loqalyn app or loqalyn service, then reopen Loqalyn.', {'code': 'port_unavailable'}) from exc
                 try:
                     private_directory(self.data_dir)
                     lock_path=self.data_dir/'desktop.lock'
@@ -84,11 +85,11 @@ class DesktopController:
                     if self._lock_file:
                         self._lock_file.close()
                         self._lock_file = None
-                    raise DesktopError('Switchyard cannot open its data folder, or another app is using it.', {'code': 'data_unavailable'}) from exc
+                    raise DesktopError('Loqalyn cannot open its data folder, or another app is using it.', {'code': 'data_unavailable'}) from exc
                 self._socket = sock
                 self._stop_requested = False
                 self._startup = startup = concurrent.futures.Future()
-                self._thread = threading.Thread(target=self._thread_main, args=(startup,), name='switchyard-desktop-service', daemon=True)
+                self._thread = threading.Thread(target=self._thread_main, args=(startup,), name='loqalyn-desktop-service', daemon=True)
                 self._thread.start()
         # Discovery may take seconds. Never hold the lifecycle lock while waiting:
         # Quit must be able to cancel startup and close its partial resources.
@@ -97,10 +98,10 @@ class DesktopController:
                 startup.result(timeout=45)
             except concurrent.futures.TimeoutError:
                 self.stop()
-                raise DesktopError('The local service did not finish starting. Reopen Switchyard to try again.', {'code': 'startup_timeout'})
+                raise DesktopError('The local service did not finish starting. Reopen Loqalyn to try again.', {'code': 'startup_timeout'})
         if self._stop_requested:
             raise DesktopError('Local service startup was cancelled.', {'code': 'startup_cancelled'})
-        return self.call('/switchyard/status')
+        return self.call('/loqalyn/status')
 
     def _thread_main(self, startup):
         error = None
@@ -131,9 +132,9 @@ class DesktopController:
         if sys.platform == 'darwin' and self.use_keychain:
             try:
                 from keyring.backends.macOS import Keyring
-                value = Keyring().get_password('switchyard', 'lmstudio')
+                value = keychain_password(Keyring(), 'lmstudio')
                 if value:
-                    os.environ['SWITCHYARD_LM_TOKEN'] = value
+                    os.environ['LOQALYN_LM_TOKEN'] = value
             except Exception:
                 pass  # Unavailable optional runtime credentials do not block launch.
         runner = None
@@ -176,10 +177,10 @@ class DesktopController:
 
     def _path(self, path):
         if not isinstance(path, str) or not path.startswith('/') or path.startswith('//') or '\\' in path or any(ord(c) < 32 for c in path):
-            raise DesktopError('Only local Switchyard API paths are allowed.', {'code': 'invalid_path'})
+            raise DesktopError('Only local Loqalyn API paths are allowed.', {'code': 'invalid_path'})
         parts = urlsplit(path)
         if parts.scheme or parts.netloc or parts.fragment or '..' in parts.path.split('/'):
-            raise DesktopError('Only local Switchyard API paths are allowed.', {'code': 'invalid_path'})
+            raise DesktopError('Only local Loqalyn API paths are allowed.', {'code': 'invalid_path'})
         return self.endpoint + path
 
     def _submit(self, coroutine):
@@ -225,7 +226,7 @@ class DesktopController:
         try:
             async with aiohttp.ClientSession(trust_env=False, timeout=aiohttp.ClientTimeout(total=7200)) as session:
                 async with session.post(self.endpoint + '/v1/chat/completions', json=body, headers={'Authorization': 'Bearer ' + self.token}, allow_redirects=False) as response:
-                    result['request_id'] = response.headers.get('X-Switchyard-Request-Id')
+                    result['request_id'] = response.headers.get('X-Loqalyn-Request-Id')
                     if response.status >= 300:
                         await self._response(response)
                     if 'text/event-stream' not in response.headers.get('Content-Type', ''):
@@ -287,13 +288,13 @@ class DesktopController:
             raise DesktopError('Credentials require the macOS Keychain.', {'code': 'keychain_required'})
         try:
             from keyring.backends.macOS import Keyring
-            Keyring().set_password('switchyard', provider, secret.strip())
+            Keyring().set_password('loqalyn', provider, secret.strip())
             if provider == 'lmstudio':
-                os.environ['SWITCHYARD_LM_TOKEN'] = secret.strip()
+                os.environ['LOQALYN_LM_TOKEN'] = secret.strip()
                 # Re-applying current policy refreshes runtime credentials safely.
-                policy = self.call('/switchyard/policy')
-                self.call('/switchyard/policy', 'PUT', policy)
-                self.call('/switchyard/refresh', 'POST', {})
+                policy = self.call('/loqalyn/policy')
+                self.call('/loqalyn/policy', 'PUT', policy)
+                self.call('/loqalyn/refresh', 'POST', {})
         except DesktopError:
             raise
         except Exception as exc:
@@ -306,10 +307,9 @@ def main():
         from .cli import main as cli_main
         cli_main(); return
     if sys.platform != 'darwin':
-        raise SystemExit('The desktop interface requires macOS. Use yard serve on other systems.')
+        raise SystemExit('The desktop interface requires macOS. Use loqalyn serve on other systems.')
     from .desktop_ui import run_app
-    directory=os.environ.get('SWITCHYARD_DIR')
-    run_app(DesktopController(Path(directory) if directory else None, int(os.environ.get('SWITCHYARD_PORT','8741'))))
+    run_app(DesktopController(port=int(setting('PORT','8741'))))
 
 
 if __name__ == '__main__':

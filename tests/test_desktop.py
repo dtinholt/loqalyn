@@ -9,17 +9,17 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from switchyard import cli
-from switchyard.core import Config
-from switchyard.desktop import DesktopController, DesktopError
-from switchyard.desktop_presenter import ApprovalReview, request_payload, load_blocker, unload_blocker, StreamBuffer
+from loqalyn import cli
+from loqalyn.core import Config
+from loqalyn.desktop import DesktopController, DesktopError
+from loqalyn.desktop_presenter import ApprovalReview, request_payload, load_blocker, unload_blocker, StreamBuffer
 
 
 class NativeBridgeTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform=='darwin','Cocoa bridge requires macOS')
     def test_real_appkit_protocol_registration(self):
         # Import actual PyObjC, not mocks: catches signatures that abort launch.
-        from switchyard.desktop_ui import DesktopApplication, TableSource, FlippedView
+        from loqalyn.desktop_ui import DesktopApplication, TableSource, FlippedView
         self.assertIsNotNone(DesktopApplication)
         self.assertIsNotNone(TableSource)
         self.assertIsNotNone(FlippedView)

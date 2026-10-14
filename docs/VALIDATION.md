@@ -1,5 +1,7 @@
 For the current **0.3.0-alpha.2** results, see [the second review](SECOND-REVIEW.md). The evidence below is retained for alpha 1.
 
+> Historical document: this project was renamed from Switchyard to Loqalyn in Alpha 3. Original names, commands, measurements and evidence below describe the version reviewed at that time.
+
 # Alpha validation — 0.3.0-alpha.1
 
 Validated October 13, 2026 on an Apple silicon Mac with 32 GiB RAM, macOS 27.0.1 and bundled Python 3.12.15. This is a usable, tested alpha with the limitations below. It is not an independent penetration-test certification, a model-quality benchmark, or the historical PRD's full v1 acceptance.

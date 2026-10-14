@@ -1,17 +1,21 @@
-# Switchyard
+# Loqalyn
+
+**Your models. Your machine.**
 
 One local endpoint for models in Ollama and LM Studio, with a native macOS interface, explainable routing, coordinated model loading, and individually reviewed cloud escalation.
 
-**0.3.0-alpha.2 · Apple silicon · MIT**
+**0.3.0-alpha.3 · Apple silicon · MIT**
 
 This is a testable alpha, not the full v1 hardware/quality certification described in the historical PRD. See [the second review](docs/SECOND-REVIEW.md), [validation evidence](docs/VALIDATION.md), [supported API](docs/API.md), and [security boundaries](SECURITY.md).
 
+Loqalyn was previously released as Switchyard. It is an independent project, with no affiliation to NVIDIA NeMo Switchyard. See [the rename and upgrade notes](docs/RENAME.md).
+
 ## Install the Mac app
 
-1. Download `Switchyard-0.3.0-alpha.2-Mac-Apple-Silicon.zip` from [Releases](https://github.com/dtinholt/switchyard/releases).
-2. Extract it and move **Switchyard.app** to Applications. Python is included; no terminal installer is needed.
-3. Open Switchyard. This alpha is ad-hoc signed, without Apple Developer ID signing or notarization. macOS may require you to review it in **System Settings → Privacy & Security → Open Anyway**. Only approve the download you intended to install; don't disable Gatekeeper globally.
-4. Start Ollama or LM Studio separately. In Switchyard **Settings**, enable the runtimes you use and check their local addresses. Default addresses are `http://127.0.0.1:11434` and `http://127.0.0.1:1234`.
+1. Download `Loqalyn-0.3.0-alpha.3-Mac-Apple-Silicon.zip` from [Releases](https://github.com/dtinholt/loqalyn/releases).
+2. Extract it and move **Loqalyn.app** to Applications. Python is included; no terminal installer is needed.
+3. Open Loqalyn. This alpha is ad-hoc signed, without Apple Developer ID signing or notarization. macOS may require you to review it in **System Settings → Privacy & Security → Open Anyway**. Only approve the download you intended to install; don't disable Gatekeeper globally.
+4. Start Ollama or LM Studio separately. In Loqalyn **Settings**, enable the runtimes you use and check their local addresses. Default addresses are `http://127.0.0.1:11434` and `http://127.0.0.1:1234`.
 5. Disable runtime cloud/remote forwarding. For an Ollama-only setup, choose **Settings → Verify local setup**; supported Ollama versions can confirm the setting automatically. Otherwise confirm it manually. For Ollama see its [cloud controls](https://docs.ollama.com/faq#how-do-i-disable-ollamas-cloud-features). For LM Studio, use local models with remote/Link features disabled. A loopback address alone cannot prove that the runtime never forwards requests.
 6. Installed models appear in **Models**. To add one, use **Discover → Search Hugging Face → Inspect files → Download & install**. Then try **Playground → Evaluate route** and generate a short response.
 
@@ -32,7 +36,7 @@ The first-run memory budget is 75% of detected RAM, capped at 96 GiB, with reser
 - **Escalations:** review/redact the entire outgoing request, preview the exact provider payload, and approve one send. Nothing is sent automatically.
 - **Settings:** memory budget, runtime addresses, local-only confirmation, and optional provider credentials in macOS Keychain.
 
-The gateway listens only on `127.0.0.1:8741`. Copy the local API token from Settings into your client. Treat it like a password: it authorizes generation and configuration, not just reading status. The only unauthenticated endpoint is `/health`. Closing the window keeps the menu-bar service running; **Quit Switchyard** stops the owned gateway without quitting the runtimes.
+The gateway listens only on `127.0.0.1:8741`. Copy the local API token from Settings into your client. Treat it like a password: it authorizes generation and configuration, not just reading status. The only unauthenticated endpoint is `/health`. Closing the window keeps the menu-bar service running; **Quit Loqalyn** stops the owned gateway without quitting the runtimes.
 
 Client base URL: `http://127.0.0.1:8741/v1`. Model: `auto`, `auto-fast`, `auto-code`, or a runtime-qualified model ID. The response identifies the model that actually served it. For a conversation or tool cycle, pin that returned model ID to retain model continuity; `auto` routes each request independently.
 
@@ -51,14 +55,14 @@ python scripts/stress_gateway.py --output validation-output/stress
 The desktop is macOS-only. Linux gateway CI is a portability check, not a supported desktop distribution. Development installation resolves platform dependencies; the release bundle instead uses the complete URL/SHA-256 lock in `macos/dependencies.lock.json`.
 
 ```sh
-python -m switchyard.desktop                 # native interface
+python -m loqalyn.desktop                 # native interface
 # Alternatively, without starting a second listener:
-yard --data-dir "$HOME/Library/Application Support/Switchyard" status
-yard --data-dir "$HOME/Library/Application Support/Switchyard" route 'Explain a Python function'
-yard --data-dir "$HOME/Library/Application Support/Switchyard" mcp
+/Applications/Loqalyn.app/Contents/MacOS/Loqalyn --cli status
+/Applications/Loqalyn.app/Contents/MacOS/Loqalyn --cli route 'Explain a Python function'
+/Applications/Loqalyn.app/Contents/MacOS/Loqalyn --cli mcp
 ```
 
-Standalone `yard serve` uses `~/.switchyard` unless `--data-dir` or `SWITCHYARD_DIR` is supplied. Native app data lives in `~/Library/Application Support/Switchyard`. Do not run both on the same port. The app also includes the CLI at `/Applications/Switchyard.app/Contents/MacOS/Switchyard --cli` and uses its native data directory automatically.
+Standalone `loqalyn serve` uses `~/.loqalyn` unless `--data-dir` or `LOQALYN_DIR` is supplied. New native app profiles live in `~/Library/Application Support/Loqalyn`. Existing `Switchyard` profiles are reused in place, preserving the API token, policy, catalogue and history. Existing `~/.switchyard` CLI profiles are likewise reused. `SWITCHYARD_*` environment variables and the `yard` command remain compatibility aliases; `LOQALYN_*` takes precedence. Do not run both on the same port. The app also includes the CLI at `/Applications/Loqalyn.app/Contents/MacOS/Loqalyn --cli` and uses its native data directory automatically.
 
 MCP exposes `list_models`, `route`, `load`, and `escalation_status` over stdio. It has no cloud-approval or tool-execution method. See [API and compatibility](docs/API.md).
 

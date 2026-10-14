@@ -10,12 +10,12 @@ from unittest.mock import AsyncMock, patch
 import aiohttp
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
-from switchyard.adapters import Adapter
-from switchyard.core import Config, Fault, Journal, Model, route, DEFAULTS
-from switchyard.desktop_presenter import StreamBuffer
-from switchyard.hub import HubCatalogue, repository, gguf_file
-from switchyard.security import loads
-from switchyard.server import create_app, post_check, start_download
+from loqalyn.adapters import Adapter
+from loqalyn.core import Config, Fault, Journal, Model, route, DEFAULTS
+from loqalyn.desktop_presenter import StreamBuffer
+from loqalyn.hub import HubCatalogue, repository, gguf_file
+from loqalyn.security import loads
+from loqalyn.server import create_app, post_check, start_download
 from tests.fixtures import Runtime
 
 
@@ -210,7 +210,7 @@ class ReviewGatewayTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_runtime_address_change_clears_old_inventory(self):
         policy=copy.deepcopy(self.s.config.data);policy['runtimes']['ollama']='http://127.0.0.1:1'
-        r=await self.client.put('/switchyard/policy',json=policy,headers=self.auth)
+        r=await self.client.put('/loqalyn/policy',json=policy,headers=self.auth)
         self.assertEqual(r.status,200)
         self.assertEqual(self.s.models,{})
         self.assertIsNone(self.s.decision(body())['model'])
@@ -223,12 +223,12 @@ class ReviewGatewayTests(unittest.IsolatedAsyncioTestCase):
         await r.read()
 
     async def test_hub_and_cancel_routes_need_auth(self):
-        for path in ('/switchyard/hub/search','/switchyard/hub/inspect','/switchyard/hub/install','/switchyard/jobs/x/cancel'):
+        for path in ('/loqalyn/hub/search','/loqalyn/hub/inspect','/loqalyn/hub/install','/loqalyn/jobs/x/cancel'):
             r=await self.client.post(path,json={}); self.assertEqual(r.status,401)
 
     async def test_install_requires_confirmation_and_preview(self):
         for payload,expected in (({},403),({'confirmed':True,'preview_id':'madeup','filename':'x.gguf'},409)):
-            r=await self.client.post('/switchyard/hub/install',json=payload,headers=self.auth)
+            r=await self.client.post('/loqalyn/hub/install',json=payload,headers=self.auth)
             self.assertEqual(r.status,expected); self.assertEqual(self.s.jobs,{})
 
     async def test_cancel_download_and_limit_duplicate_jobs(self):
@@ -237,7 +237,7 @@ class ReviewGatewayTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(self.s.adapters['ollama'],'pull',blocked):
             job=start_download(self.s,'ollama','test'); await entered.wait()
             with self.assertRaises(Fault): start_download(self.s,'ollama','test')
-            r=await self.client.post('/switchyard/jobs/'+job['id']+'/cancel',json={},headers=self.auth)
+            r=await self.client.post('/loqalyn/jobs/'+job['id']+'/cancel',json={},headers=self.auth)
             self.assertEqual(r.status,200); self.assertEqual((await r.json())['status'],'cancelled')
             self.assertTrue(self.s.jobs[job['id']]['task'].done())
 

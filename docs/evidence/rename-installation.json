@@ -1,0 +1,13 @@
+{
+  "version": "0.3.0a3",
+  "name": "Loqalyn",
+  "settings_and_token_unchanged": true,
+  "new_and_legacy_api_work": true,
+  "local_only_confirmed": true,
+  "escalation_mode": "off",
+  "runtime_cloud_disabled": true,
+  "active": 0,
+  "native_overview_and_discover_verified": true,
+  "native_huggingface_search_verified": true,
+  "search_results": 20
+}

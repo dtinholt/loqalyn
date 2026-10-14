@@ -105,7 +105,7 @@ def model_summary(model: dict) -> str:
     context=f"{model['context_max']:,} tokens" if model.get('context_max') else 'Not reported'
     memory=f"{model.get('memory_gb',0):.2f} GiB reserved" if model.get('loaded') else f"{model.get('size_gb',0):.2f} GiB weights on disk"
     features=', '.join(str(x).replace('_',' ').title() for x in model.get('capabilities',[])) or 'Not reported'
-    ownership='Managed by Switchyard' if model.get('managed') else 'Managed by the runtime' if model.get('loaded') else 'Available to load'
+    ownership='Managed by Loqalyn' if model.get('managed') else 'Managed by the runtime' if model.get('loaded') else 'Available to load'
     return '\n'.join([model.get('name',model['id']), model_status(model)+'  ·  '+RUNTIME_NAMES.get(model['runtime'],model['runtime']), '',
         'Model family              '+model.get('family','Unknown')+'  ·  '+model.get('parameters','Unknown')+' parameters',
         'Memory estimate     '+memory, 'Maximum context     '+context, 'Capabilities              '+features,
@@ -138,7 +138,7 @@ def unload_blocker(model: dict) -> str | None:
     if model.get("tier") == "resident":
         return "Change the resident tier in Configure before unloading."
     if not model.get("managed"):
-        return "This instance was loaded outside Switchyard. Unload it in its runtime."
+        return "This instance was loaded outside Loqalyn. Unload it in its runtime."
     return None
 
 

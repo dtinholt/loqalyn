@@ -7,8 +7,8 @@ import argparse, asyncio, json, platform, tempfile, time
 from pathlib import Path
 import aiohttp
 from aiohttp.test_utils import TestClient, TestServer
-from switchyard.core import Config
-from switchyard.server import create_app
+from loqalyn.core import Config
+from loqalyn.server import create_app
 
 async def main(args):
     report={'kind':'actual local model inference','model':args.model,'platform':platform.platform(),'checks':{},'cases':[]}
@@ -35,20 +35,20 @@ async def main(args):
                     if options.get('stream'): case['completed']='[DONE]' in text; case['contains_content']='"content"' in text
                     else:
                         value=json.loads(text); case['model_receipt']=value.get('model'); case['content']=value['choices'][0]['message'].get('content'); case['usage']=value.get('usage'); case['completed']=bool(case['content'])
-                    decision=s.journal.get(r.headers['X-Switchyard-Request-Id']); case['journal_status']=decision['status']; case['receipt_matches']=decision['model']==model
+                    decision=s.journal.get(r.headers['X-Loqalyn-Request-Id']); case['journal_status']=decision['status']; case['receipt_matches']=decision['model']==model
                 else: case['error']=json.loads(text).get('error',{}).get('code')
                 report['cases'].append(case)
                 report['checks'][name]=r.status==200 and case.get('completed',False) and case.get('receipt_matches',False) and case.get('journal_status')=='completed'
                 return case
         try:
-            await run_case('first_text' if report['initially_loaded'] else 'cold_text','Reply with the single word SWITCHYARD.')
+            await run_case('first_text' if report['initially_loaded'] else 'cold_text','Reply with the single word LOQALYN.')
             await run_case('warm_stream','What is two plus two? Reply briefly.',stream=True)
             await run_case('json_output','Return exactly a JSON object with one key "ok" and boolean true.',response_format={'type':'json_object'})
             for i in range(3): await run_case('repeat_'+str(i),'Reply with the single word READY.')
             if report['initially_loaded']:
                 report['checks']['existing_loaded_model_preserved']=s.models[model].loaded and not s.models[model].managed
             else:
-                async with client.post('/switchyard/models/unload',json={'model':model},headers=auth) as r: report['checks']['managed_unload']=r.status==200; await r.read()
+                async with client.post('/loqalyn/models/unload',json={'model':model},headers=auth) as r: report['checks']['managed_unload']=r.status==200; await r.read()
             report['checks']['active_released']=sum(m.active for m in s.models.values())==0
         finally: await client.close()
     args.output.parent.mkdir(parents=True,exist_ok=True); args.output.write_text(json.dumps(report,indent=2)+'\n'); print(json.dumps(report,indent=2))

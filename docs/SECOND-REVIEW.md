@@ -1,5 +1,7 @@
 # Second review — 0.3.0-alpha.2
 
+> Historical document: this project was renamed from Switchyard to Loqalyn in Alpha 3. Original names, commands, measurements and evidence below describe the version reviewed at that time.
+
 Reviewed October 13–14, 2026 on Apple silicon, macOS 27.0.1, Python 3.12.15 and Ollama 0.35.0. This update addresses performance, security, setup friction and model discovery. It remains an alpha; this is an engineering review with automated adversarial tests, not an independent penetration-test certification.
 
 ## Findings and changes

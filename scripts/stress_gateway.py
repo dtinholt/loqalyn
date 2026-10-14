@@ -15,7 +15,7 @@ import tempfile
 import time
 
 import aiohttp
-from switchyard.core import Config
+from loqalyn.core import Config
 from tests.fixtures import Runtime
 
 
@@ -36,9 +36,9 @@ async def run(output,total=6000,soak_seconds=60):
                               budget_gb=6,headroom_gb=1,queue_timeout=2,request_timeout=5,escalation_mode='off')
             c.save(p)
             with socket.socket() as sock: sock.bind(('127.0.0.1',0)); port=sock.getsockname()[1]
-            env=os.environ.copy(); env.pop('SWITCHYARD_LM_TOKEN',None)
+            env=os.environ.copy(); env.pop('LOQALYN_LM_TOKEN',None); env.pop('SWITCHYARD_LM_TOKEN',None)
             with (output/'gateway.log').open('wb') as log:
-                process=subprocess.Popen([sys.executable,'-m','switchyard.cli','--port',str(port),'--data-dir',str(profile),'serve'],env=env,stdout=log,stderr=log)
+                process=subprocess.Popen([sys.executable,'-m','loqalyn.cli','--port',str(port),'--data-dir',str(profile),'serve'],env=env,stdout=log,stderr=log)
                 base=f'http://127.0.0.1:{port}'
                 async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15),connector=aiohttp.TCPConnector(limit=160),trust_env=False) as client:
                     for _ in range(100):
@@ -53,7 +53,7 @@ async def run(output,total=6000,soak_seconds=60):
                     async def monitor():
                         while running:
                             try:
-                                async with client.get(base+'/switchyard/status',headers=auth) as r:
+                                async with client.get(base+'/loqalyn/status',headers=auth) as r:
                                     if r.status==200:
                                         state=await r.json(); active.append(state['active']); budget.append(state['used_gb']); rss.append(state['process_peak_rss_mib'])
                             except Exception: pass
@@ -63,7 +63,7 @@ async def run(output,total=6000,soak_seconds=60):
                         latencies=[]
                         for _ in range(1000):
                             start=time.perf_counter()
-                            async with client.post(base+'/switchyard/route',headers=auth,json={'model':'auto','messages':[{'role':'user','content':'Hello'}],'max_tokens':16}) as r:
+                            async with client.post(base+'/loqalyn/route',headers=auth,json={'model':'auto','messages':[{'role':'user','content':'Hello'}],'max_tokens':16}) as r:
                                 if r.status!=200: report['unexpected'].append({'phase':'routing','status':r.status})
                                 await r.read()
                             latencies.append((time.perf_counter()-start)*1000)
@@ -119,7 +119,7 @@ async def run(output,total=6000,soak_seconds=60):
                         async with client.post(base+'/v1/chat/completions',headers=auth,json={
                             'model':models[0],'messages':[{'role':'user','content':'Recovery'}],'max_tokens':16}) as r:
                             report['recovery_status']=r.status; await r.read()
-                        async with client.get(base+'/switchyard/status',headers=auth) as r: final=await r.json()
+                        async with client.get(base+'/loqalyn/status',headers=auth) as r: final=await r.json()
                         report['final_active']=final['active']; report['final_inflight']=final['inflight']
                         report['gateway_metrics']=final['metrics']
                         report['fixture_active_evictions']=sum(p.evicted_active for p in peers)

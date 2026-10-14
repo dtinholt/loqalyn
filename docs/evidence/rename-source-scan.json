@@ -1,0 +1,11 @@
+{
+  "kind": "heuristic source scan; not a guarantee of absence",
+  "text_files_scanned": 94,
+  "findings": [],
+  "excluded_from_git": [
+    "local profiles",
+    "model weights",
+    "API tokens",
+    "runtime logs"
+  ]
+}

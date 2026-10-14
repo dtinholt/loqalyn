@@ -4,8 +4,9 @@ from pathlib import Path
 import yaml
 from . import __version__
 from .security import api_token, loads, MAX_BODY, MAX_RUNTIME
+from .identity import profile_directory
 
-DEFAULT_DIR=Path(os.environ.get('SWITCHYARD_DIR',Path.home()/'.switchyard'))
+DEFAULT_DIR=profile_directory()
 
 def call(path,method='GET',body=None,port=8741,directory=DEFAULT_DIR):
     token=api_token(Path(directory)/'token')
@@ -35,15 +36,15 @@ def mcp(port,directory):
             if not isinstance(req,dict): raise ValueError('JSON-RPC request must be an object.')
             if 'id' not in req: continue
             method=req.get('method'); params=req.get('params',{})
-            if method=='initialize': result={'protocolVersion':'2024-11-05','capabilities':{'tools':{}},'serverInfo':{'name':'switchyard','version':__version__}}
+            if method=='initialize': result={'protocolVersion':'2024-11-05','capabilities':{'tools':{}},'serverInfo':{'name':'loqalyn','version':__version__}}
             elif method=='ping': result={}
             elif method=='tools/list': result={'tools':tools}
             elif method=='tools/call':
                 name=params['name']; args=params.get('arguments',{})
-                if name=='list_models': value=call('/switchyard/catalog',port=port,directory=directory)
-                elif name=='route': value=call('/switchyard/route','POST',{'model':args.get('model','auto'),'messages':[{'role':'user','content':args['prompt']}]},port,directory)
-                elif name=='load': value=call('/switchyard/models/load','POST',{'model':args['model'],'context':args.get('context',8192)},port,directory)
-                elif name=='escalation_status': value=call('/switchyard/escalations',port=port,directory=directory)
+                if name=='list_models': value=call('/loqalyn/catalog',port=port,directory=directory)
+                elif name=='route': value=call('/loqalyn/route','POST',{'model':args.get('model','auto'),'messages':[{'role':'user','content':args['prompt']}]},port,directory)
+                elif name=='load': value=call('/loqalyn/models/load','POST',{'model':args['model'],'context':args.get('context',8192)},port,directory)
+                elif name=='escalation_status': value=call('/loqalyn/escalations',port=port,directory=directory)
                 else: raise ValueError('Unknown tool')
                 result={'content':[{'type':'text','text':json.dumps(value)}]}
             else:
@@ -57,7 +58,7 @@ def evaluate(path,port,directory):
     for case in cases:
         begin=time.perf_counter()
         body=case.get('request',{'model':'auto','messages':case.get('messages',[])})
-        result=call('/switchyard/route','POST',body,port,directory); durations.append((time.perf_counter()-begin)*1000)
+        result=call('/loqalyn/route','POST',body,port,directory); durations.append((time.perf_counter()-begin)*1000)
         expected=case.get('expect',{}); failures=[]
         if 'route' in expected and result['route']!=expected['route']: failures.append('route')
         if expected.get('acceptable_models') and result['model'] not in expected['acceptable_models']: failures.append('model')
@@ -69,7 +70,7 @@ def evaluate(path,port,directory):
     return 0 if passed==len(reports) else 1
 
 def main():
-    parser=argparse.ArgumentParser(prog='yard',description='One endpoint. The right local model.')
+    parser=argparse.ArgumentParser(prog='loqalyn',description='One endpoint. The right local model.')
     parser.add_argument('--port',type=int,default=8741); parser.add_argument('--data-dir',type=Path,default=DEFAULT_DIR)
     sub=parser.add_subparsers(dest='command',required=True)
     sub.add_parser('serve',help='Start the local API gateway')
@@ -88,7 +89,7 @@ def main():
         if args.command=='serve':
             from aiohttp import web
             from .server import create_app
-            print(f'Switchyard is starting at http://127.0.0.1:{args.port}. Ctrl+C to stop.')
+            print(f'Loqalyn is starting at http://127.0.0.1:{args.port}. Ctrl+C to stop.')
             web.run_app(create_app(args.data_dir),host='127.0.0.1',port=args.port,access_log=None,handler_cancellation=True); return
         if args.command=='token': print(api_token(args.data_dir/'token')); return
         if args.command=='mcp': mcp(args.port,args.data_dir); return
@@ -97,15 +98,15 @@ def main():
             from keyring.backends.macOS import Keyring
             key=getpass.getpass(f'{args.provider} API key (saved to macOS Keychain): ')
             if not key: raise ValueError('No key entered.')
-            Keyring().set_password('switchyard',args.provider,key); print('Key saved. No network request was made.'); return
+            Keyring().set_password('loqalyn',args.provider,key); print('Key saved. No network request was made.'); return
         if args.command=='eval': sys.exit(evaluate(args.fixtures,args.port,args.data_dir))
         request=lambda path,method='GET',body=None: call(path,method,body,args.port,args.data_dir)
-        if args.command in ('status','catalog'): result=request('/switchyard/'+args.command)
-        elif args.command=='recover': result=request('/switchyard/recover','POST',{'runtime':args.runtime,'confirmed_runtime_restarted':args.confirmed_runtime_restarted})
-        elif args.command=='refresh': result=request('/switchyard/refresh','POST',{})
-        elif args.command=='route': result=request('/switchyard/route','POST',{'model':args.model,'messages':[{'role':'user','content':args.prompt}]})
-        elif args.command in ('load','unload'): result=request('/switchyard/models/'+args.command,'POST',{'model':args.model,'context':args.context})
-        elif args.command=='pull': result=request('/switchyard/pull','POST',{'model':args.model,'runtime':args.runtime,'confirmed':True})
+        if args.command in ('status','catalog'): result=request('/loqalyn/'+args.command)
+        elif args.command=='recover': result=request('/loqalyn/recover','POST',{'runtime':args.runtime,'confirmed_runtime_restarted':args.confirmed_runtime_restarted})
+        elif args.command=='refresh': result=request('/loqalyn/refresh','POST',{})
+        elif args.command=='route': result=request('/loqalyn/route','POST',{'model':args.model,'messages':[{'role':'user','content':args.prompt}]})
+        elif args.command in ('load','unload'): result=request('/loqalyn/models/'+args.command,'POST',{'model':args.model,'context':args.context})
+        elif args.command=='pull': result=request('/loqalyn/pull','POST',{'model':args.model,'runtime':args.runtime,'confirmed':True})
         elif args.command=='bench':
             start=time.perf_counter(); result=request('/v1/chat/completions','POST',{'model':args.model,'stream':False,'max_tokens':args.tokens,'messages':[{'role':'user','content':'Explain the benefits of local computing in concise sentences.'}]})
             elapsed=time.perf_counter()-start; count=result.get('usage',{}).get('completion_tokens')

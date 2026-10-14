@@ -48,14 +48,16 @@ def main():
     if sys.platform!='darwin' or platform.machine()!='arm64': raise SystemExit('Build on an Apple silicon Mac with the Apple command line tools.')
     lock=json.loads((ROOT/'macos/dependencies.lock.json').read_text())
     args.output.mkdir(parents=True,exist_ok=True); args.cache.mkdir(parents=True,exist_ok=True)
-    app=args.output/'Switchyard.app'
+    app=args.output/'Loqalyn.app'
     if app.exists(): raise SystemExit('Output bundle already exists; choose an empty build directory.')
     contents=app/'Contents'; resources=contents/'Resources'; binary=contents/'MacOS'
     resources.mkdir(parents=True); binary.mkdir()
     if args.base_bundle:
         base=args.base_bundle/'Contents'
         shutil.copytree(base/'Resources/runtime',resources/'runtime',symlinks=True)
-        shutil.copy2(base/'MacOS/SwitchyardPython',binary/'SwitchyardPython')
+        old_python=base/'MacOS/LoqalynPython'
+        if not old_python.exists(): old_python=base/'MacOS/SwitchyardPython'
+        shutil.copy2(old_python,binary/'LoqalynPython')
     else:
         with tempfile.TemporaryDirectory(dir=args.output) as temp:
             with tarfile.open(fetch(lock['runtime'],args.cache)) as archive:
@@ -63,8 +65,10 @@ def main():
             runtime=Path(temp)/'python'
             shutil.copytree(runtime,resources/'runtime',symlinks=True)
         exe=resources/'runtime/bin/python3.12'
-        shutil.move(exe,binary/'SwitchyardPython')
-        exe.symlink_to('../../../MacOS/SwitchyardPython')
+        shutil.move(exe,binary/'LoqalynPython')
+    exe=resources/'runtime/bin/python3.12'
+    if exe.is_symlink(): exe.unlink()
+    exe.symlink_to('../../../MacOS/LoqalynPython')
     (contents/'lib').symlink_to('Resources/runtime/lib')
     # Packaging needs no installer in the runtime: dependencies are hash locked.
     shutil.rmtree(resources/'runtime/lib/python3.12/site-packages')
@@ -77,22 +81,22 @@ def main():
     for path in list(packages.rglob('*.dSYM')): shutil.rmtree(path)
     if (packages/'PyObjCTest').exists(): shutil.rmtree(packages/'PyObjCTest')
     # The journal uses patched APSW; bootstrap disables the old stdlib entry point.
-    shutil.copytree(ROOT/'switchyard',resources/'app/switchyard',ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
+    shutil.copytree(ROOT/'loqalyn',resources/'app/loqalyn',ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
     shutil.copy2(ROOT/'macos/bootstrap.py',resources/'bootstrap.py')
-    shutil.copy2(ROOT/'macos/Switchyard.icns',resources/'Switchyard.icns')
+    shutil.copy2(ROOT/'macos/Loqalyn.icns',resources/'Loqalyn.icns')
     shutil.copy2(ROOT/'LICENSE',resources/'LICENSE')
     shutil.copy2(ROOT/'macos/dependencies.lock.json',resources/'build-manifest.json')
-    info={'CFBundleName':'Switchyard','CFBundleDisplayName':'Switchyard','CFBundleIdentifier':'dev.switchyard.desktop',
-          'CFBundleExecutable':'Switchyard','CFBundleIconFile':'Switchyard.icns','CFBundlePackageType':'APPL',
-          'CFBundleShortVersionString':'0.3.0','CFBundleVersion':'4','LSMinimumSystemVersion':'13.0',
+    info={'CFBundleName':'Loqalyn','CFBundleDisplayName':'Loqalyn','CFBundleIdentifier':'dev.loqalyn.desktop',
+          'CFBundleExecutable':'Loqalyn','CFBundleIconFile':'Loqalyn.icns','CFBundlePackageType':'APPL',
+          'CFBundleShortVersionString':'0.3.0','CFBundleVersion':'5','LSMinimumSystemVersion':'13.0',
           'NSHighResolutionCapable':True,'NSPrincipalClass':'NSApplication','LSApplicationCategoryType':'public.app-category.developer-tools'}
     (contents/'Info.plist').write_bytes(plistlib.dumps(info)); (contents/'PkgInfo').write_text('APPL????')
-    subprocess.run(['xcrun','clang','-arch','arm64','-mmacosx-version-min=13.0','-O2',str(ROOT/'macos/launcher.c'),'-o',str(binary/'Switchyard')],check=True)
+    subprocess.run(['xcrun','clang','-arch','arm64','-mmacosx-version-min=13.0','-O2',str(ROOT/'macos/launcher.c'),'-o',str(binary/'Loqalyn')],check=True)
     for attribute in ('com.apple.FinderInfo','com.apple.ResourceFork'):
         subprocess.run(['xattr','-dr',attribute,str(app)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     for path in sorted(app.rglob('*'),key=lambda p:len(p.parts),reverse=True):
         if path.is_symlink(): continue
-        if path==binary/'Switchyard': continue
+        if path==binary/'Loqalyn': continue
         if path.is_file():
             with path.open('rb') as handle: magic=handle.read(4)
             if magic in (b'\xcf\xfa\xed\xfe',b'\xca\xfe\xba\xbe'):

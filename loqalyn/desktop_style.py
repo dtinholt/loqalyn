@@ -1,4 +1,4 @@
-"""Small native drawing primitives for Switchyard's light workspace theme.
+"""Small native drawing primitives for Loqalyn's light workspace theme.
 
 Controls remain NSButtons with native focus, keyboard actions and accessibility.
 No embedded browser or custom input event loop is involved.

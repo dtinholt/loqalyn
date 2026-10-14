@@ -3,8 +3,8 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "switchyard-local"
-version = "0.3.0a2"
+name = "loqalyn"
+version = "0.3.0a3"
 description = "A local-first model gateway for Ollama and LM Studio on macOS"
 requires-python = ">=3.12"
 license = "MIT"
@@ -14,7 +14,8 @@ dependencies = ["aiohttp==3.14.5", "PyYAML==6.0.3", "jsonschema==4.26.0", "keyri
 mac = ["pyobjc-core==12.2.2", "pyobjc-framework-Cocoa==12.2.2"]
 
 [project.scripts]
-yard = "switchyard.cli:main"
+loqalyn = "loqalyn.cli:main"
+yard = "loqalyn.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["switchyard*"]
+include = ["loqalyn*"]
