@@ -1,0 +1,23 @@
+{
+  "kind": "Hugging Face live search, install, local inference",
+  "checks": {
+    "search": true,
+    "installed": false
+  },
+  "repository": "Qwen/Qwen3-0.6B-GGUF",
+  "revision": "23749fefcc72300e3a2ad315e1317431b06b590a",
+  "file": "Qwen3-0.6B-Q8_0.gguf",
+  "size_bytes": 639446688,
+  "sha256": "9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031",
+  "install_seconds": 900.81,
+  "job": {
+    "status": "running",
+    "runtime": "ollama",
+    "model": "hf.co/Qwen/Qwen3-0.6B-GGUF:Qwen3-0.6B-Q8_0.gguf",
+    "repository": "Qwen/Qwen3-0.6B-GGUF",
+    "phase": "pulling 9465e63a22ad",
+    "total_bytes": 639446688,
+    "completed_bytes": 189429490,
+    "percent": 29.6
+  }
+}

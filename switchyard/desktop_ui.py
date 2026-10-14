@@ -98,6 +98,10 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         self.review_record = None
         self.review_request_id = None
         self.job_ids = set()
+        self.download_states = {}
+        self.hub_preview = None
+        self.last_stream_render = 0
+        self.last_stream_text = None
         self.policy_loaded = False
         self.settings_loaded = False
         self.last_connection_error = None
@@ -146,8 +150,8 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
     @objc.python_method
     def _quit_checked(self, state):
         active = int(state.get("active", 0))
-        if active or self.stream_cancel is not None:
-            if not self._confirm("Quit Switchyard?", f"{max(active, 1)} request(s) may be interrupted. The local endpoint will stop. Model runtimes remain separate applications.", "Quit", destructive=True):
+        if active or self.stream_cancel is not None or self.job_ids:
+            if not self._confirm("Quit Switchyard?", f"{max(active, 1)} request(s) or downloads may be interrupted. The local endpoint will stop. Model runtimes remain separate applications.", "Quit", destructive=True):
                 self._cancel_quit()
                 return
         self._begin_shutdown()
@@ -215,7 +219,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         button = FlatButton.alloc().initWithFrame_(rect(x, y, width, 34))
         button.setTitle_(title)
         button.setBordered_(False)
-        button.tone = "primary" if key in ("generate", "save_policy", "save_settings", "preview", "approve", "load") or title == "Open playground" else "secondary"
+        button.tone = "primary" if key in ("generate", "save_policy", "save_settings", "preview", "approve", "load", "hub_install") or title == "Open playground" else "secondary"
         button.setFont_(C.NSFont.systemFontOfSize_(13))
         self._action(button, callback)
         if key:
@@ -418,7 +422,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         self._label(self.sidebar, "Switchyard", 57, 34, 140, 28, size=19, bold=True).setTextColor_(SURFACE)
         self._label(self.sidebar, "LOCAL MODEL ROUTER", 25, 72, 175, 18, size=9).setTextColor_(NAV_TEXT)
         self._label(self.sidebar, "WORKSPACE", 25, 114, 165, 18, size=10).setTextColor_(color('769399'))
-        symbols=("square.grid.2x2", "square.stack.3d.up", "sparkles", "slider.horizontal.3", "clock.arrow.circlepath", "checkmark.shield", "gearshape")
+        symbols=("square.grid.2x2", "square.stack.3d.up", "magnifyingglass", "sparkles", "slider.horizontal.3", "clock.arrow.circlepath", "checkmark.shield", "gearshape")
         for index, name in enumerate(PAGES):
             button = self._button(self.sidebar, name, 14, 141 + index * 44, SIDEBAR - 28, lambda page=name: self._navigate(page))
             button.setFrameSize_(F.NSMakeSize(SIDEBAR-28,38))
@@ -440,6 +444,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         self.status_label = self._label(self.root, "Starting Switchyard…", SIDEBAR + 24, HEIGHT - 32, PAGE_WIDTH - 30, 24, secondary=True, size=11)
         self._build_overview()
         self._build_models()
+        self._build_discover()
         self._build_playground()
         self._build_policies()
         self._build_activity()
@@ -464,7 +469,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         show = C.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Show Switchyard", "showWindow:", "")
         show.setTarget_(self)
         menu.addItem_(show)
-        refresh = C.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Discover models", None, "")
+        refresh = C.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Refresh model library", None, "")
         self._action(refresh, lambda: self._refresh(True))
         menu.addItem_(refresh)
         menu.addItem_(C.NSMenuItem.separatorItem())
@@ -527,7 +532,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         self._label(notice,"●",18,19,24,26,size=18).setTextColor_(ACCENT)
         self.overview_notice = self._label(notice, "Starting your local gateway…", 50, 14, PAGE_WIDTH-116, 43, size=12, stretch=True)
         self._button(page, "Open playground", 24, 194, 166, lambda: self._navigate("Playground"))
-        self._button(page, "Discover models", 202, 194, 150, lambda: self._refresh(True), "discover")
+        self._button(page, "Find new models", 202, 194, 150, lambda: self._navigate("Discover"), "discover")
         self._button(page, "Retry startup", 364, 194, 130, self._start, "retry")
         self.metric_labels = {}; self.metric_cards=[]
         card_width=(PAGE_WIDTH-90)/4
@@ -556,8 +561,9 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         self.search_field.setTarget_(self)
         self.search_field.setAction_("filterModels:")
         page.addSubview_(self.search_field)
-        self._button(page, "Discover", 365, 111, 115, lambda: self._refresh(True), "model_discover")
-        self._button(page, "Download model…", 492, 111, 172, self._download_model, "download")
+        self._button(page, "Refresh library", 365, 111, 135, lambda: self._refresh(True), "model_discover")
+        self._button(page, "Find new models", 512, 111, 162, lambda: self._navigate("Discover"), "download")
+        self._button(page, "Install by ID…", 686, 111, 155, self._download_model)
         columns = [("name", "Model", 235, lambda m: m.get("name", m["id"])), ("runtime", "Runtime", 110, lambda m: RUNTIME_NAMES.get(m["runtime"], m["runtime"])), ("memory", "Memory", 95, lambda m: f"{m.get('memory_gb', 0):.1f} GiB" if m.get("loaded") else "—"), ("context", "Max context", 100, lambda m: f"{m['context_max']:,}" if m.get("context_max") else "Unknown"), ("tier", "Tier", 100, lambda m: m.get("tier", "").replace("_", " ")), ("status", "State", 155, model_status)]
         self.model_table, self.model_source = self._table(page, columns, 157, 330, self._models_selected)
         self.model_count = self._label(page, "No inventory yet", 24, 498, PAGE_WIDTH - 48, secondary=True, stretch=True)
@@ -566,6 +572,124 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         self.model_details = self._editor(page, 24, 588, PAGE_WIDTH - 48, 238, editable=False)
         self.model_details.setString_("Select a model to inspect its runtime, memory estimate, and capabilities.")
         self._label(page, "Active, resident, and externally loaded models are protected. Memory values are admission estimates, not measured process peaks.", 24, 842, PAGE_WIDTH - 48, 42, secondary=True, size=11, stretch=True)
+
+    @objc.python_method
+    def _build_discover(self):
+        page = self._page("Discover", "Find your next local model", "Search Hugging Face, choose GGUF weights, and install them directly into Ollama.", 1195)
+        self.hub_query = self._field(page, "Model name or publisher/model", "", 24, 113, 562)
+        self.hub_query.setPlaceholderString_("Try Qwen3, Llama, or a publisher/model repository")
+        self._button(page, "Search Hugging Face", 602, 135, 255, self._search_hub, "hub_search")
+        self._label(page, "Search sends only this search term to Hugging Face. Your prompts stay local. Public GGUF text models only.", 24, 185, PAGE_WIDTH-48, 36, secondary=True, size=11, stretch=True)
+        columns = [("id", "Publisher / model", 535, lambda m:m["id"]), ("downloads", "Downloads", 130, lambda m:f"{m['downloads']:,}"), ("license", "License", 190, lambda m:m['license'])]
+        self.hub_table, self.hub_source = self._table(page, columns, 235, 226, self._hub_selected)
+        self._button(page, "Inspect files", 24, 480, 145, self._inspect_hub, "hub_inspect")
+        self.hub_note = self._label(page, "Search for a model, then select a repository to inspect its download choices.", 186, 483, PAGE_WIDTH-210, 42, secondary=True, size=11, stretch=True)
+        self._label(page, "Choose your weights", 24, 547, PAGE_WIDTH-48, 27, size=16, bold=True, stretch=True)
+        columns = [("filename", "GGUF file", 515, lambda f:f['filename']), ("quant", "Precision", 115, lambda f:f['quant']), ("size", "Download", 105, lambda f:f"{f['size_gb']:.2f} GiB"), ("memory", "RAM estimate", 125, lambda f:f"~{f['memory_estimate_gb']:.1f} GiB")]
+        self.hub_files_table, self.hub_files_source = self._table(page, columns, 590, 165, self._sync_buttons)
+        self._button(page, "Download & install", 24, 777, 188, self._install_hub, "hub_install")
+        self._button(page, "Model card & license", 224, 777, 195, self._open_hub_card, "hub_card")
+        self._label(page, "Q4_K_M is a useful starting point when available. RAM estimates are rough; context and architecture change actual use. Ollama checks architecture support during installation.", 24, 831, PAGE_WIDTH-48, 50, secondary=True, size=11, stretch=True)
+        self._label(page, "Downloads", 24, 916, 350, 27, size=16, bold=True)
+        self._button(page, "Cancel downloads", 660, 909, 197, self._cancel_downloads, "hub_cancel")
+        self.download_details = self._editor(page, 24, 963, PAGE_WIDTH-48, 158, editable=False)
+        self.download_details.setString_("No downloads yet. Installed models will appear automatically in your library.")
+        self._label(page, "Model publishers set their own licenses. Cancellation closes the download request; Ollama may retain partial files for reuse.", 24, 1138, PAGE_WIDTH-48, 37, secondary=True, size=11, stretch=True)
+
+    @objc.python_method
+    def _search_hub(self):
+        query = str(self.hub_query.stringValue()).strip()
+        self.hub_preview = None
+        self._reload_table(self.hub_files_table, self.hub_files_source, [])
+        self.hub_note.setStringValue_("Searching Hugging Face…")
+        if '/' in query:
+            self._work("hub-inspect", lambda:self.controller.call('/switchyard/hub/inspect','POST',{'repository':query}), self._hub_inspected)
+            return
+        def done(result):
+            self._reload_table(self.hub_table, self.hub_source, result['models'])
+            self.hub_note.setStringValue_(f"{len(result['models'])} repositories. Select one, then inspect its files." if result['models'] else "No public GGUF text models found. Try a broader model name.")
+        self._work("hub-search", lambda:self.controller.call('/switchyard/hub/search','POST',{'query':query}), done)
+
+    @objc.python_method
+    def _hub_selected(self):
+        self.hub_preview = None
+        self._reload_table(self.hub_files_table, self.hub_files_source, [])
+        self.hub_note.setStringValue_("Choose Inspect files to see sizes, precision options and the license.")
+        self._sync_buttons()
+
+    @objc.python_method
+    def _inspect_hub(self):
+        selected = self._selected(self.hub_table, self.hub_source)
+        if not selected: raise ValueError("Select a Hugging Face repository first.")
+        repo = selected['id']
+        self.hub_preview = None
+        self.hub_note.setStringValue_("Checking model files and download sizes…")
+        self._work("hub-inspect", lambda:self.controller.call('/switchyard/hub/inspect','POST',{'repository':repo}), self._hub_inspected)
+
+    @objc.python_method
+    def _hub_inspected(self, result):
+        self.hub_preview = result
+        self._reload_table(self.hub_files_table, self.hub_files_source, result['files'])
+        self.hub_note.setStringValue_(result['repository'] + " · License: " + result['license'])
+        if result['files']:
+            self.hub_files_table.selectRowIndexes_byExtendingSelection_(F.NSIndexSet.indexSetWithIndex_(0),False)
+        self._sync_buttons()
+
+    @objc.python_method
+    def _open_hub_card(self):
+        if self.hub_preview:
+            C.NSWorkspace.sharedWorkspace().openURL_(F.NSURL.URLWithString_(self.hub_preview['url']))
+
+    @objc.python_method
+    def _install_hub(self):
+        file = self._selected(self.hub_files_table, self.hub_files_source)
+        if not file or not self.hub_preview: raise ValueError("Inspect a repository and select a GGUF file first.")
+        preview = self.hub_preview
+        budget = self.state['budget_gb'] - self.state['headroom_gb']
+        text = (preview['repository'] + "\n" + file['filename'] + f"\n\nDownload: {file['size_gb']:.2f} GiB. Rough RAM estimate: {file['memory_estimate_gb']:.1f} GiB."
+                + f"\nAllow roughly {file['size_gb']*2+1:.1f} GiB of free space in Ollama's storage."
+                + "\nLicense: " + preview['license'] + ". Review the model card's terms before downloading."
+                + "\n\nOllama will download and install these weights. No prompts are sent.")
+        if file['memory_estimate_gb'] > budget:
+            text += "\n\nThis estimate exceeds your usable model budget. Installation may succeed, but routing may exclude the model."
+        if not self._confirm("Install this model?", text, "Download & install"): return
+        body = {'preview_id':preview['id'], 'filename':file['filename'], 'confirmed':True}
+        self._work("hub-install", lambda:self.controller.call('/switchyard/hub/install','POST',body), self._download_started)
+
+    @objc.python_method
+    def _render_downloads(self):
+        while len(self.download_states)>32: self.download_states.pop(next(iter(self.download_states)))
+        lines = []
+        for item in list(self.download_states.values())[-6:]:
+            detail = item.get('error') or item.get('phase') or item.get('status','Starting')
+            if item.get('total_bytes'):
+                detail += f" · {item.get('percent',0):.1f}% · {item.get('completed_bytes',0)/1024**3:.2f} / {item['total_bytes']/1024**3:.2f} GiB"
+            lines.append(item.get('model', 'Model download')+'\n'+detail)
+        self.download_details.setString_('\n\n'.join(lines))
+
+    @objc.python_method
+    def _cancel_downloads(self):
+        for job_id in tuple(self.job_ids):
+            def done(result):
+                self.download_states[result['id']] = result
+                if result.get('status') != 'running': self.job_ids.discard(result['id'])
+                self._render_downloads()
+            self._work('cancel-'+job_id, lambda ident=job_id:self.controller.call('/switchyard/jobs/'+quote(ident,safe='')+'/cancel','POST',{}), done)
+
+    @objc.python_method
+    def _verify_local_setup(self):
+        if self._settings_values() != self.settings_form_snapshot:
+            raise ValueError("Save your edited settings before verifying local setup.")
+        def checked(state):
+            self._apply_state(state)
+            policy = state['policy']
+            if set(policy['runtimes']) == {'ollama'} and state.get('runtimes',{}).get('ollama',{}).get('cloud_disabled') is True:
+                updated = copy.deepcopy(policy); updated['runtime_local_only_confirmed'] = True
+                self._work('settings', lambda:self.controller.call('/switchyard/policy','PUT',updated), lambda _:self._refresh(True))
+                self._status("Ollama confirms cloud access is off. Local generation is enabled.")
+            else:
+                self._status("Review the verification result in Local runtime setup. Confirm LM Link or older runtime settings manually.")
+        self._work('verify-setup', lambda:self.controller.call('/switchyard/refresh','POST',{}), checked)
 
     @objc.python_method
     def _build_playground(self):
@@ -583,7 +707,9 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         self._label(page, "Why this model", 24, 758, PAGE_WIDTH - 48, 28, size=16, bold=True, stretch=True)
         self.play_trace = self._editor(page, 24, 792, PAGE_WIDTH - 48, 190, editable=False, mono=True)
         self.play_trace.setString_("Your route's candidates, exclusions, model, and reason will appear here.")
-        self._label(page, "Response", 24, 456, PAGE_WIDTH - 48, 28, size=16, bold=True, stretch=True)
+        self._label(page, "Response", 24, 456, 230, 28, size=16, bold=True)
+        self.show_reasoning = self._check(page, "Show model reasoning", 610, 456, 270)
+        self._action(self.show_reasoning, self._render_stream)
         self.play_output = self._editor(page, 24, 490, PAGE_WIDTH - 48, 240, editable=False)
 
     @objc.python_method
@@ -640,14 +766,14 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
             self.settings_fields[key] = self._field(page, title, "", x, y, width)
         self._label(page, "Reserve headroom within the budget. Unload models before lowering the budget below current reservations.", 24, 279, PAGE_WIDTH - 48, 39, secondary=True, size=11, stretch=True)
         self._label(page, "Local runtime setup", 24, 331, PAGE_WIDTH - 48, 27, bold=True, size=16, stretch=True)
-        self.locality_confirm = self._check(page, "I disabled Ollama cloud access and LM Link in LM Studio.", 24, 370, PAGE_WIDTH - 48)
-        self._label(page, "Start Ollama with OLLAMA_NO_CLOUD=1 and restart it. Disable LM Link in LM Studio. A loopback URL alone cannot guarantee that a runtime will not forward to a remote service.", 24, 407, PAGE_WIDTH - 48, 51, secondary=True, size=11, stretch=True)
+        self.locality_confirm = self._check(page, "I disabled cloud forwarding in every enabled runtime.", 24, 370, PAGE_WIDTH - 48)
+        self.locality_status = self._label(page, "Ollama cloud settings are checked before generation. Disable LM Link manually if you use LM Studio.", 24, 407, PAGE_WIDTH - 48, 51, secondary=True, size=11, stretch=True)
         self.runtime_enabled = {}
         for index, runtime in enumerate(RUNTIME_NAMES):
             y = 480 + index * 79
             self.runtime_enabled[runtime] = self._check(page, "Enable " + RUNTIME_NAMES[runtime], 24, y + 22, 195)
             self.settings_fields[runtime] = self._field(page, "Loopback HTTP URL", "", 239, y, 462)
-        self._button(page, "Check saved connections", 24, 647, 220, lambda: self._refresh(True), "settings_discover")
+        self._button(page, "Verify local setup", 24, 647, 220, self._verify_local_setup, "settings_discover")
         self._label(page, "Save edited addresses before checking. Unload all models before changing runtime URLs.", 262, 651, PAGE_WIDTH - 286, 44, secondary=True, size=11, stretch=True)
         self._label(page, "Privacy and escalation", 24, 714, PAGE_WIDTH - 48, 27, bold=True, size=16, stretch=True)
         self.settings_mode = self._popup(page, [("Flag · review required", "flag"), ("Off · local only", "off")], 24, 753, 260)
@@ -798,12 +924,18 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
             runtime_lines.append(name + ": " + ("Not configured" if item is None else "Online" if item.get("online") else "Offline") + ((" — " + str(item["error"])) if item and item.get("error") else ""))
         self.sidebar_health.setStringValue_("\n\n".join(line.split(" — ")[0] for line in runtime_lines))
         self.overview_runtime.setStringValue_("    •    ".join(runtime_lines))
+        ollama = health.get("ollama", {})
+        privacy = "Ollama: cloud access verified off." if ollama.get("cloud_disabled") is True else "Ollama: cloud access is enabled. Disable it and restart Ollama." if ollama.get("cloud_disabled") is False else "Ollama: cloud setting could not be verified. Confirm setup manually if your version does not report it."
+        if "ollama" not in state["policy"]["runtimes"]: privacy = "Ollama is not enabled."
+        self.locality_status.setStringValue_(privacy + (" LM Studio: disable LM Link and confirm manually." if "lmstudio" in state["policy"]["runtimes"] else ""))
         if state.get("config_error"):
             self.overview_notice.setStringValue_("Configuration needs attention: " + state["config_error"])
         elif not state["policy"].get("runtime_local_only_confirmed"):
-            self.overview_notice.setStringValue_("Finish local setup in Settings: disable Ollama cloud access and LM Link, restart the runtimes, and confirm. Discovery and route previews work before confirmation.")
+            self.overview_notice.setStringValue_("Finish local setup in Settings, then choose Verify local setup. Disable Ollama cloud access; disable LM Link if you use LM Studio. You can browse models and preview routes now.")
+        elif health.get("ollama", {}).get("cloud_disabled") is False:
+            self.overview_notice.setStringValue_("Ollama cloud access is enabled. Generation through Ollama is blocked until you disable it and restart Ollama.")
         elif not models:
-            self.overview_notice.setStringValue_("No installed models discovered. Start Ollama or LM Studio, then choose Discover models. Use Download model in the Models page to fetch weights explicitly.")
+            self.overview_notice.setStringValue_("No installed models found. Start your enabled runtime. Choose Discover to find and install a model, or refresh the Models library if you already have one.")
         else:
             self.overview_notice.setStringValue_("Local gateway ready. Model loads stay within your admission budget. Cloud requests always require approval.")
         self.status_menu_line.setTitle_(f"{state.get('active', 0)} active • {sum(bool(m.get('loaded')) for m in models)} loaded • {used:.1f} GiB")
@@ -818,10 +950,13 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
             self._fill_policy(state["policy"])
         if not self.settings_loaded or self._settings_values() == self.settings_form_snapshot:
             self._fill_settings(state["policy"])
+        if not state["policy"].get("runtime_local_only_confirmed") and self.stream_cancel is None:
+            self.play_status.setStringValue_("Finish local setup in Settings, then choose Verify local setup to enable generation.")
         self._sync_buttons()
 
     @objc.python_method
     def _reload_table(self, table, source, rows):
+        if source.rows == list(rows): return
         current = self._selected(table, source)
         identifier = current.get("id") if current else None
         source.suppress_selection = True
@@ -880,6 +1015,11 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         self.controls["route"].setEnabled_(live and "route" not in self.pending and self.stream_cancel is None)
         self.controls["generate"].setEnabled_(bool(live and (self.state or {}).get("policy", {}).get("runtime_local_only_confirmed") and self.stream_cancel is None and "route" not in self.pending))
         self.controls["stop"].setEnabled_(self.stream_cancel is not None)
+        self.controls["hub_search"].setEnabled_(live and "hub-search" not in self.pending and "hub-inspect" not in self.pending)
+        self.controls["hub_inspect"].setEnabled_(bool(live and self._selected(self.hub_table,self.hub_source) and "hub-inspect" not in self.pending))
+        self.controls["hub_install"].setEnabled_(bool(live and self.hub_preview and self._selected(self.hub_files_table,self.hub_files_source) and "hub-install" not in self.pending and "ollama" in (self.state or {}).get("policy",{}).get("runtimes",{})))
+        self.controls["hub_cancel"].setEnabled_(bool(live and self.job_ids))
+        self.controls["hub_card"].setEnabled_(bool(live and self.hub_preview))
         self.controls["save_policy"].setEnabled_(live and "policy" not in self.pending)
         self.controls["save_settings"].setEnabled_(live and "settings" not in self.pending)
         self.controls["save_key"].setEnabled_(live and "key" not in self.pending)
@@ -982,12 +1122,14 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
     def _download_started(self, result):
         self.job_ids.add(result["id"])
         self._status("Download started. Switchyard will check progress while it runs.")
-        self.model_details.setString_("Download job\n" + pretty(result))
+        self.download_states[result["id"]] = result
+        self._render_downloads()
 
     @objc.python_method
     def _poll_job(self, job_id):
         def done(result):
-            self.model_details.setString_("Download job\n" + pretty(result))
+            self.download_states[result["id"]] = result
+            self._render_downloads()
             status = result.get("status")
             if status != "running":
                 self.job_ids.discard(job_id)
@@ -1028,6 +1170,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         self.stream_cancel = threading.Event()
         cancel = self.stream_cancel
         self.stream_buffer = StreamBuffer()
+        self.last_stream_text = None
         self.play_output.setString_("")
         self.play_status.setStringValue_("Routing and warming a local model…")
         self._work("generation", lambda: self.controller.stream(body, self._receive_delta, cancel), self._generation_done)
@@ -1040,7 +1183,12 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
             if not self.stream_render_pending:
                 self.stream_render_pending = True
                 with objc.autorelease_pool():
-                    AppHelper.callAfter(self._render_stream)
+                    AppHelper.callAfter(self._schedule_stream_render)
+
+    @objc.python_method
+    def _schedule_stream_render(self):
+        # At most ten whole-text updates per second, including reasoning tokens.
+        AppHelper.callLater(max(0, 0.1-(time.monotonic()-self.last_stream_render)), self._render_stream)
 
     @objc.python_method
     def _render_stream(self):
@@ -1048,11 +1196,15 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
             self.stream_render_pending = False
             if self.quitting:
                 return
-            text = self.stream_buffer.text()
+            text = self.stream_buffer.text(self.show_reasoning.state() == C.NSControlStateValueOn)
+            thinking = bool(self.stream_buffer.reasoning and not self.stream_buffer.content)
             model = self.stream_buffer.model
-        self.play_output.setString_(text)
+        self.last_stream_render = time.monotonic()
+        if text != self.last_stream_text:
+            self.play_output.setString_(text)
+            self.last_stream_text = text
         if self.stream_cancel is not None:
-            self.play_status.setStringValue_((model + " · " if model else "") + "Generating locally…")
+            self.play_status.setStringValue_((model + " · " if model else "") + ("Thinking locally… Your answer will appear here." if thinking else "Generating locally…"))
 
     @objc.python_method
     def _generation_done(self, result):
@@ -1064,8 +1216,10 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         status = "Cancelled; partial output retained." if result.get("cancelled") else "Output limit reached." if result.get("finish_reason") == "length" else "Tool call requested; not executed by the playground." if result.get("finish_reason") == "tool_calls" else "Complete."
         self.play_status.setStringValue_((str(result["model"]) + " · " if result.get("model") else "") + status)
         request_id = result.get("request_id")
-        if request_id:
+        if request_id and (self.state or {}).get('policy',{}).get('log_retention_days',30)>0:
             self._work("generation-decision", lambda: self.controller.call("/switchyard/decisions/" + quote(request_id, safe="")), lambda decision: self.play_trace.setString_(decision_text(decision)), quiet=True)
+        elif request_id:
+            self.play_trace.setString_("Decision history is disabled in Settings. Use Evaluate route to inspect a route without saving it.")
         self._refresh(False, quiet=True)
 
     @objc.python_method

@@ -1,0 +1,107 @@
+{
+  "kind": "actual local model inference",
+  "model": "switchyard-alpha-test:latest",
+  "platform": "macOS-27.0.1-arm64-arm-64bit",
+  "checks": {
+    "first_text": true,
+    "warm_stream": true,
+    "json_output": true,
+    "repeat_0": true,
+    "repeat_1": true,
+    "repeat_2": true,
+    "existing_loaded_model_preserved": true,
+    "active_released": true
+  },
+  "cases": [
+    {
+      "name": "first_text",
+      "status": 200,
+      "seconds": 1.139,
+      "model_receipt": "ollama/switchyard-alpha-test:latest",
+      "content": "SWITCHYARD",
+      "usage": {
+        "prompt_tokens": 23,
+        "completion_tokens": 179,
+        "total_tokens": 202
+      },
+      "completed": true,
+      "journal_status": "completed",
+      "receipt_matches": true
+    },
+    {
+      "name": "warm_stream",
+      "status": 200,
+      "seconds": 0.607,
+      "completed": true,
+      "contains_content": true,
+      "journal_status": "completed",
+      "receipt_matches": true
+    },
+    {
+      "name": "json_output",
+      "status": 200,
+      "seconds": 0.737,
+      "model_receipt": "ollama/switchyard-alpha-test:latest",
+      "content": "{\n\n  \"ok\": true\n}",
+      "usage": {
+        "prompt_tokens": 29,
+        "completion_tokens": 136,
+        "total_tokens": 165
+      },
+      "completed": true,
+      "journal_status": "completed",
+      "receipt_matches": true
+    },
+    {
+      "name": "repeat_0",
+      "status": 200,
+      "seconds": 0.665,
+      "model_receipt": "ollama/switchyard-alpha-test:latest",
+      "content": "READY.",
+      "usage": {
+        "prompt_tokens": 21,
+        "completion_tokens": 127,
+        "total_tokens": 148
+      },
+      "completed": true,
+      "journal_status": "completed",
+      "receipt_matches": true
+    },
+    {
+      "name": "repeat_1",
+      "status": 200,
+      "seconds": 0.697,
+      "model_receipt": "ollama/switchyard-alpha-test:latest",
+      "content": "READY.",
+      "usage": {
+        "prompt_tokens": 21,
+        "completion_tokens": 127,
+        "total_tokens": 148
+      },
+      "completed": true,
+      "journal_status": "completed",
+      "receipt_matches": true
+    },
+    {
+      "name": "repeat_2",
+      "status": 200,
+      "seconds": 0.644,
+      "model_receipt": "ollama/switchyard-alpha-test:latest",
+      "content": "READY.",
+      "usage": {
+        "prompt_tokens": 21,
+        "completion_tokens": 127,
+        "total_tokens": 148
+      },
+      "completed": true,
+      "journal_status": "completed",
+      "receipt_matches": true
+    }
+  ],
+  "initially_loaded": true,
+  "runtime_version": {
+    "version": "0.35.0"
+  },
+  "model_bytes": 522653325,
+  "model_manifest_digest": "dd3c324809d9f5c8a8e27e97a6f6f40773df425f14306d75cbe59d73b520d90f"
+}

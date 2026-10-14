@@ -2,28 +2,31 @@
 
 One local endpoint for models in Ollama and LM Studio, with a native macOS interface, explainable routing, coordinated model loading, and individually reviewed cloud escalation.
 
-**0.3.0-alpha.1 · Apple silicon · MIT**
+**0.3.0-alpha.2 · Apple silicon · MIT**
 
-This is a testable alpha, not the full v1 hardware/quality certification described in the historical PRD. See [validation evidence](docs/VALIDATION.md), [supported API](docs/API.md), and [security boundaries](SECURITY.md).
+This is a testable alpha, not the full v1 hardware/quality certification described in the historical PRD. See [the second review](docs/SECOND-REVIEW.md), [validation evidence](docs/VALIDATION.md), [supported API](docs/API.md), and [security boundaries](SECURITY.md).
 
 ## Install the Mac app
 
-1. Download `Switchyard-0.3.0-alpha.1-Mac-Apple-Silicon.zip` from [Releases](https://github.com/dtinholt/switchyard/releases).
+1. Download `Switchyard-0.3.0-alpha.2-Mac-Apple-Silicon.zip` from [Releases](https://github.com/dtinholt/switchyard/releases).
 2. Extract it and move **Switchyard.app** to Applications. Python is included; no terminal installer is needed.
 3. Open Switchyard. This alpha is ad-hoc signed, without Apple Developer ID signing or notarization. macOS may require you to review it in **System Settings → Privacy & Security → Open Anyway**. Only approve the download you intended to install; don't disable Gatekeeper globally.
 4. Start Ollama or LM Studio separately. In Switchyard **Settings**, enable the runtimes you use and check their local addresses. Default addresses are `http://127.0.0.1:11434` and `http://127.0.0.1:1234`.
-5. Disable runtime cloud/remote forwarding, then confirm local-only setup in Settings. For Ollama see its [cloud controls](https://docs.ollama.com/faq#how-do-i-disable-ollamas-cloud-features). For LM Studio, use local models with remote/Link features disabled. A loopback address alone cannot prove that the runtime never forwards requests.
-6. Choose **Discover**, then try **Playground → Evaluate route** and generate a short response.
+5. Disable runtime cloud/remote forwarding. For an Ollama-only setup, choose **Settings → Verify local setup**; supported Ollama versions can confirm the setting automatically. Otherwise confirm it manually. For Ollama see its [cloud controls](https://docs.ollama.com/faq#how-do-i-disable-ollamas-cloud-features). For LM Studio, use local models with remote/Link features disabled. A loopback address alone cannot prove that the runtime never forwards requests.
+6. Installed models appear in **Models**. To add one, use **Discover → Search Hugging Face → Inspect files → Download & install**. Then try **Playground → Evaluate route** and generate a short response.
 
 Requires an Apple silicon Mac; the bundle targets macOS 13+, but local validation was on macOS 27.0.1. Older supported targets still need on-device acceptance. Inference requires a separately installed runtime and suitable local model. Model files are not included.
+
+New profiles enable Ollama by default. Enable LM Studio separately in Settings if you use it; existing profiles retain their choices.
 
 The first-run memory budget is 75% of detected RAM, capped at 96 GiB, with reserved headroom. On a 32 GB Mac this starts at 24 GiB with 4 GiB headroom. These are estimates, not OS-wide memory guarantees. Begin with a small model; do not run simultaneous heavy workloads in other apps during evaluation.
 
 ## Use it
 
 - **Overview:** runtime health and estimated model reservations.
-- **Models:** discover, configure, load, unload, and explicitly download models. Runtime-advertised tool support is not verification: mark tools verified only after testing that model.
-- **Playground:** preview a route or generate locally. Tool calls are displayed, never executed by the app.
+- **Models:** refresh installed models, configure, load, unload, or install a known runtime model ID. Runtime-advertised tool support is not verification: mark tools verified only after testing that model.
+- **Discover:** search Hugging Face or enter a publisher/model repository, compare GGUF sizes, review its license, and install into Ollama with progress and cancellation. Only public, ungated, single-file GGUFs with SHA-256 metadata are offered.
+- **Playground:** preview a route or generate locally. Answers appear first; model reasoning is optional. Tool calls are displayed, never executed by the app.
 - **Policies:** edit routes, preferences, and admission settings.
 - **Activity:** inspect request outcomes and export metadata without prompts or generated text.
 - **Escalations:** review/redact the entire outgoing request, preview the exact provider payload, and approve one send. Nothing is sent automatically.

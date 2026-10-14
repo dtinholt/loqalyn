@@ -1,4 +1,5 @@
 """Adapters for trusted loopback runtimes; runtime forwarding must be disabled."""
+import asyncio
 import copy
 import json
 import re
@@ -76,6 +77,26 @@ def _size(value):
 class Adapter:
     def __init__(self, name, url, session, token=None):
         self.name = name; self.url = validate_runtime_url(name, url); self.session = session; self.token = token
+        self.metadata_cache = {}; self.cloud_disabled = None
+
+    async def privacy_status(self):
+        if self.name != 'ollama': return None
+        async with self.session.get(self.url + '/api/status', headers=self.headers, allow_redirects=False,
+                timeout=aiohttp.ClientTimeout(total=5)) as response:
+            # Older Ollama versions cannot attest this setting. They still need
+            # explicit operator confirmation, including the per-model checks.
+            if response.status in (404, 405):
+                self.cloud_disabled = None; return None
+            if response.status != 200: raise _runtime_data('Could not verify Ollama cloud settings.')
+            value = await read_response(response, 16384)
+            disabled = value.get('cloud', {}).get('disabled') if isinstance(value, dict) and isinstance(value.get('cloud'), dict) else None
+            if type(disabled) is not bool: raise _runtime_data('Ollama returned unknown cloud settings.')
+            self.cloud_disabled = disabled
+            return disabled
+
+    async def ensure_local(self):
+        if await self.privacy_status() is False:
+            raise Fault('Ollama cloud access is enabled. Disable it and restart Ollama before generating.', 'runtime_cloud_enabled', 403)
 
     @property
     def headers(self):
@@ -91,6 +112,7 @@ class Adapter:
             return result
 
     async def discover(self):
+        await self.privacy_status()
         return await self._ollama_models() if self.name == 'ollama' else await self._lm_models()
 
     async def _ollama_models(self):
@@ -101,7 +123,28 @@ class Adapter:
             _model_id(name)
             running[name] = entry
         result = []; seen = set()
-        for entry in tags:
+        # Cache immutable manifest metadata; revalidate mutable manifests on each
+        # discovery. Before every inference, /api/show is checked again below.
+        gate = asyncio.Semaphore(4)
+        async def metadata(entry):
+            name = _model_id(entry.get('name') or entry.get('model')); digest = entry.get('digest')
+            key = (name, digest) if isinstance(digest, str) and re.fullmatch('[a-f0-9]{64}', digest) else None
+            if _remote(name, entry): return {}
+            if key in self.metadata_cache: return self.metadata_cache[key]
+            async with gate:
+                value = await self.json('POST', '/api/show', {'model': name}, timeout=10)
+                result = {k:v for k,v in value.items() if k in ('model_info','capabilities','remote_host','remote_model','is_remote','remote','location')}
+                if len(json.dumps(result).encode()) > 128*1024: raise _runtime_data('Model metadata is too large.')
+                return result
+        metadata_results = await asyncio.gather(*(metadata(entry) for entry in tags), return_exceptions=True)
+        for outcome in metadata_results:
+            if isinstance(outcome, BaseException): raise outcome
+        self.metadata_cache = {}; cache_bytes = 0
+        for entry, meta in zip(tags, metadata_results):
+            cache_bytes += len(json.dumps(meta).encode())
+            if cache_bytes <= 8*1024*1024 and isinstance(entry.get('digest'), str) and re.fullmatch('[a-f0-9]{64}', entry['digest']):
+                self.metadata_cache[(entry.get('name') or entry.get('model'), entry['digest'])] = meta
+        for entry, meta in zip(tags, metadata_results):
             name = entry.get('name') or entry.get('model')
             _model_id(name)
             if name in seen: raise _runtime_data('Runtime returned duplicate model IDs.')
@@ -110,7 +153,6 @@ class Adapter:
             if _remote(name, entry):
                 if name in running: result.append(self._running_only(name, running[name]))
                 continue
-            meta = await self.json('POST', '/api/show', {'model': name}, timeout=10)
             if _remote(name, entry, meta):
                 if name in running: result.append(self._running_only(name, running[name]))
                 continue
@@ -121,8 +163,12 @@ class Adapter:
             context = _context(prop('context_length', 0))
             layers = prop('block_count'); heads = prop('attention.head_count')
             kvheads = prop('attention.head_count_kv', heads); embed = prop('embedding_length')
-            dims = (layers, heads, kvheads, embed)
-            kv = 2 * layers * kvheads * (embed / heads) * 2 * 1024 / GIB if all(_number(v, minimum=1) for v in dims) else 1.0
+            # Some architectures (including Qwen3) use a head dimension that
+            # differs from embedding_length / head_count. Prefer explicit K/V.
+            head_dim = embed / heads if _number(heads, minimum=1) and _number(embed, minimum=1) else 0
+            key_dim = prop('attention.key_length', head_dim); value_dim = prop('attention.value_length', head_dim)
+            dims = (layers, kvheads, key_dim, value_dim)
+            kv = layers * kvheads * (key_dim + value_dim) * 2 * 1024 / GIB if all(_number(v, minimum=1) for v in dims) else 1.0
             loaded = running.get(name, {})
             chat = not caps or 'completion' in caps
             if not chat and not loaded: continue
@@ -131,6 +177,7 @@ class Adapter:
                       capabilities=(['chat'] if chat else ['embedding']) + (['code'] if 'code' in name.lower() else [])
                       + (['vision'] if 'vision' in caps else []) + (['tools'] if 'tools' in caps else []) + (['reasoning'] if 'thinking' in caps else []),
                       quant=details.get('quantization_level') or 'Unknown', format=details.get('format') or 'gguf',
+                      family=str(details.get('family') or 'Unknown')[:128], parameters=str(details.get('parameter_size') or 'Unknown')[:128],
                       kv_gb_per_1k=kv, loaded=bool(loaded), loaded_context=_context(loaded.get('context_length', 0)),
                       instance=name if loaded else None, instance_count=1 if loaded else 0, available=chat)
             # The reported digest is a manifest hash, not the weight file hash.
@@ -187,6 +234,7 @@ class Adapter:
 
     async def load(self, model, context):
         self._local_model(model)
+        await self.ensure_local()
         if self.name == 'ollama':
             # Recheck cloud alias metadata immediately before invoking the model.
             meta = await self.json('POST', '/api/show', {'model': model.handle})
@@ -212,11 +260,48 @@ class Adapter:
         if not model.instance: raise Fault('No loaded instance ID is available; restart the runtime.', 'runtime_state_unknown', 503)
         return await self.json('POST', '/api/v1/models/unload', {'instance_id': model.instance})
 
-    async def pull(self, name):
+    async def pull(self, name, progress=None, expected=None):
         if not isinstance(name, str) or not name or name.startswith('-') or len(name) > 250 or any(c.isspace() for c in name):
             raise Fault('Invalid model name.')
         if _remote(name): raise Fault('Cloud model aliases are disabled.', 'remote_model_blocked', 403)
-        if self.name == 'ollama': return await self.json('POST', '/api/pull', {'model': name, 'stream': False}, timeout=7200)
+        if self.name == 'ollama':
+            finished = False; verified = False; total_bytes = 0; layers = {}
+            async with self.session.post(self.url + '/api/pull', json={'model': name, 'stream': True},
+                    headers=self.headers, allow_redirects=False, timeout=aiohttp.ClientTimeout(total=7200, sock_read=180)) as response:
+                if response.status != 200: raise _runtime_data('Ollama rejected the model download.')
+                async for line in response.content:
+                    total_bytes += len(line)
+                    if len(line) > 65536 or total_bytes > 16*1024*1024: raise _runtime_data('Download progress exceeded limits.')
+                    if not line.strip(): continue
+                    item = loads(line, limit=65536)
+                    if not isinstance(item, dict) or 'error' in item: raise _runtime_data('Ollama could not download or install this GGUF. Check model compatibility and available disk space.')
+                    status = item.get('status')
+                    if not isinstance(status, str) or len(status) > 256: raise _runtime_data('Invalid download status.')
+                    total = item.get('total', 0); completed = item.get('completed', 0); digest = item.get('digest')
+                    if not _number(total, integer=True, maximum=128*GIB) or not _number(completed, integer=True, maximum=total): raise _runtime_data('Invalid download byte counts.')
+                    if expected and total:
+                        if not isinstance(digest, str) or not re.fullmatch(r'sha256:[a-f0-9]{64}', digest): raise _runtime_data('Download digest is missing.')
+                        layers[digest] = total
+                        if len(layers) > 16 or sum(layers.values()) > expected['size_bytes'] + 4*1024*1024:
+                            raise _runtime_data('Download size changed; inspect the repository again.')
+                        if digest == 'sha256:' + expected['sha256']:
+                            if total != expected['size_bytes']: raise _runtime_data('Reviewed model size changed.')
+                            verified = True
+                        elif total > 1024*1024:
+                            raise _runtime_data('The model digest changed; inspect the repository again.')
+                    if progress:
+                        progress({'phase': ''.join(c for c in status if c.isprintable()), 'total_bytes': total,
+                                  'completed_bytes': completed, 'percent': round(completed/total*100, 1) if total else None})
+                    if status == 'success': finished = True
+            if not finished or (expected and not verified): raise _runtime_data('Download ended without confirmation of the reviewed model weights.')
+            if expected:
+                # Progress updates may skip the final completed==total event.
+                # Require terminal success AND the reviewed content-addressed
+                # blob, instead of trusting a sampled progress counter.
+                async with self.session.head(self.url + '/api/blobs/sha256:' + expected['sha256'],
+                        headers=self.headers, allow_redirects=False, timeout=aiohttp.ClientTimeout(total=10)) as blob:
+                    if blob.status != 200: raise _runtime_data('Ollama did not confirm the reviewed weight blob.')
+            return {'status': 'success', 'verified_sha256': expected['sha256'] if expected else None}
         return await self.json('POST', '/api/v1/models/download', {'model': name}, timeout=7200)
 
     def native_body(self, model, body):
@@ -252,6 +337,7 @@ class Adapter:
     async def chunks(self, model, body, *, timeout=600):
         """Yield canonical OpenAI chunks and reject interrupted/malformed streams."""
         self._local_model(model)
+        await self.ensure_local()
         native = self.name == 'ollama'
         if native:
             meta = await self.json('POST', '/api/show', {'model': model.handle})

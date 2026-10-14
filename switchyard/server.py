@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 import aiohttp, yaml
 from aiohttp import web
 from . import __version__
+from .hub import HubCatalogue
 from .core import Config, Journal, Ledger, Fault, Model, route, inspect_payload, atomic_yaml, validate_catalog_patch, validate_policy
 from .adapters import Adapter, anthropic_request, anthropic_response, complete
 from .security import api_token, loads, MAX_BODY, MAX_RESPONSE, read_response, privacy_tags
@@ -27,6 +28,7 @@ class Service:
     async def start(self):
         try:
             self.session=aiohttp.ClientSession(trust_env=False)
+            self.hub=HubCatalogue(self.session)
             self.configure_adapters(); await self.refresh(); self.task=asyncio.create_task(self.poll())
         except BaseException:
             # aiohttp does not dispatch normal application cleanup if startup
@@ -35,14 +37,19 @@ class Service:
             raise
     def configure_adapters(self):
         removed=set(self.adapters)-set(self.config.data['runtimes'])
-        self.adapters.clear()
+        previous=dict(self.adapters); self.adapters.clear()
         for name in removed:
             self.health.pop(name,None)
             for id,m in list(self.models.items()):
                 if m.runtime==name and not m.loaded and not m.state_uncertain: del self.models[id]
         for name,url in self.config.data['runtimes'].items():
             token=os.environ.get('SWITCHYARD_LM_TOKEN') if name=='lmstudio' else None
-            self.adapters[name]=Adapter(name,url,self.session,token)
+            old=previous.get(name)
+            if old and old.url!=url.rstrip('/'):
+                self.health.pop(name,None)
+                for id,m in list(self.models.items()):
+                    if m.runtime==name and not m.loaded and not m.state_uncertain: del self.models[id]
+            self.adapters[name]=old if old and old.url==url.rstrip('/') and old.token==token else Adapter(name,url,self.session,token)
     async def stop(self):
         if getattr(self,'_stopped',False): return
         self._stopped=True
@@ -65,10 +72,11 @@ class Service:
             try:
                 previous=self.config.data['runtimes']; self.config.reload()
                 if previous!=self.config.data['runtimes']:
-                    if any(m.loaded for m in self.models.values()):
-                        self.config.error='Unload all models and restart Switchyard before changing runtime addresses.'
+                    if any(m.loaded or m.state_uncertain for m in self.models.values()) or any(not j['task'].done() for j in self.jobs.values()):
+                        self.config.error='Finish downloads and unload all models before changing runtime addresses.'
                         continue
                     self.configure_adapters()
+                self.journal.maintain(self.config.data['log_retention_days'])
                 await self.refresh()
                 if not self.config.error and self.config.data.get('runtime_local_only_confirmed',False):
                     for m in list(self.models.values()):
@@ -82,45 +90,52 @@ class Service:
                     if p['created']<time.time()-1800 and p['status']!='sending': self.resolve(id); del self.pending[id]
             except Exception as e: self.journal.event('poll_error',{'type':type(e).__name__})
     async def refresh(self):
-        async with self.refresh_lock, self.ledger.lock:
-            self.config.reload()
-            configured={name:adapter.url for name,adapter in self.adapters.items()}
-            desired={name:url.rstrip('/') for name,url in self.config.data['runtimes'].items()}
-            if configured!=desired:
-                if any(m.loaded or m.state_uncertain for m in self.models.values()):
-                    self.config.error='Runtime addresses changed while memory is reserved. Restore the addresses or unload all models first.'
-                    return
-                self.configure_adapters()
-            results=await asyncio.gather(*(asyncio.wait_for(a.discover(),15) for a in self.adapters.values()),return_exceptions=True)
-            self.config.reload()
-            overrides=self.config.catalog_data['models']
-            for (name,adapter),result in zip(self.adapters.items(),results):
-                if isinstance(result,BaseException):
-                    self.health[name]={'online':False,'url':adapter.url,'error':'Runtime unavailable or returned invalid metadata.'}
-                    for m in self.models.values():
-                        if m.runtime==name: m.available=False
-                    continue
-                self.health[name]={'online':True,'url':adapter.url,'error':None}; seen=set()
-                for fresh in result:
-                    seen.add(fresh.id); old=self.models.get(fresh.id)
-                    if old:
-                        if old.state_uncertain:
-                            old.memory_gb=max(old.memory_gb,fresh.memory_gb)
-                            old.available=False
-                            continue
-                        fresh.active=old.active; fresh.last_used=old.last_used; fresh.load_seconds=old.load_seconds; fresh.speed_tps=old.speed_tps
-                        fresh.managed=old.managed and fresh.loaded and fresh.instance_count<=1 and old.instance==fresh.instance and fresh.loaded_context==old.loaded_context
-                        if old.active:
-                            fresh.loaded=old.loaded; fresh.instance=old.instance; fresh.managed=old.managed; fresh.loaded_context=old.loaded_context
-                            fresh.memory_gb=max(old.memory_gb,fresh.memory_gb)
-                    for k,v in overrides.get(fresh.id,{}).items():
-                        if k in ('context_max','size_gb','kv_gb_per_1k','tools_verified','tier','digest','task_scores','name','speed_tps'):
-                            setattr(fresh,k,v)
-                    if fresh.loaded: fresh.memory_gb=max(fresh.memory_gb,fresh.footprint(fresh.loaded_context or 8192))
-                    self.models[fresh.id]=fresh
-                for id,m in list(self.models.items()):
-                    if m.runtime==name and id not in seen and not m.active and not m.state_uncertain: del self.models[id]
-            self.last_refresh=time.time()
+        async with self.refresh_lock:
+            async with self.ledger.lock:
+                self.config.reload()
+                configured={name:adapter.url for name,adapter in self.adapters.items()}
+                desired={name:url.rstrip('/') for name,url in self.config.data['runtimes'].items()}
+                if configured!=desired:
+                    if any(m.loaded or m.state_uncertain for m in self.models.values()):
+                        self.config.error='Runtime addresses changed while memory is reserved. Restore the addresses or unload all models first.'
+                        return
+                    self.configure_adapters()
+                revisions=dict(self.ledger.revisions)
+                adapters=list(self.adapters.items())
+            results=await asyncio.gather(*(asyncio.wait_for(a.discover(),15) for _,a in adapters),return_exceptions=True)
+            async with self.ledger.lock:
+                self.config.reload()
+                overrides=self.config.catalog_data['models']
+                for (name,adapter),result in zip(adapters,results):
+                    # A load, unload or lease changed while the network snapshot
+                    # was in flight. Discard it; never overwrite newer reservations.
+                    if self.ledger.revisions.get(name,0)!=revisions.get(name,0): continue
+                    if isinstance(result,BaseException):
+                        self.health[name]={'online':False,'url':adapter.url,'error':'Runtime unavailable or returned invalid metadata.'}
+                        for m in self.models.values():
+                            if m.runtime==name: m.available=False
+                        continue
+                    self.health[name]={'online':True,'url':adapter.url,'error':None,'cloud_disabled':adapter.cloud_disabled}; seen=set()
+                    for fresh in result:
+                        seen.add(fresh.id); old=self.models.get(fresh.id)
+                        if old:
+                            if old.state_uncertain:
+                                old.memory_gb=max(old.memory_gb,fresh.memory_gb)
+                                old.available=False
+                                continue
+                            fresh.active=old.active; fresh.last_used=old.last_used; fresh.load_seconds=old.load_seconds; fresh.speed_tps=old.speed_tps
+                            fresh.managed=old.managed and fresh.loaded and fresh.instance_count<=1 and old.instance==fresh.instance and fresh.loaded_context==old.loaded_context
+                            if old.active:
+                                fresh.loaded=old.loaded; fresh.instance=old.instance; fresh.managed=old.managed; fresh.loaded_context=old.loaded_context
+                                fresh.memory_gb=max(old.memory_gb,fresh.memory_gb)
+                        for k,v in overrides.get(fresh.id,{}).items():
+                            if k in ('context_max','size_gb','kv_gb_per_1k','tools_verified','tier','digest','task_scores','name','speed_tps','installation_verified'):
+                                setattr(fresh,k,v)
+                        if fresh.loaded: fresh.memory_gb=max(fresh.memory_gb,fresh.footprint(fresh.loaded_context or 8192))
+                        self.models[fresh.id]=fresh
+                    for id,m in list(self.models.items()):
+                        if m.runtime==name and id not in seen and not m.active and not m.state_uncertain: del self.models[id]
+                self.last_refresh=time.time()
     def decision(self,body,persist=False):
         self.config.ensure_valid()
         configured={name:adapter.url for name,adapter in self.adapters.items()}
@@ -149,6 +164,7 @@ class Service:
         for id,p in list(self.pending.items()):
             if p['created']<time.time()-1800 and p['status']!='sending':
                 self.resolve(id); del self.pending[id]
+        self.journal.maintain(self.config.data['log_retention_days'])
         decisions=self.journal.recent(); served=[x for x in decisions if x['status']=='completed']
         return {'version':__version__,'mode':'local','runtimes':self.health,'models':[m.public() for m in self.models.values()],
             'budget_gb':self.config.data['budget_gb'],'headroom_gb':self.config.data['headroom_gb'],'used_gb':round(sum(m.memory_gb for m in self.models.values() if m.loaded),2),
@@ -240,7 +256,8 @@ async def policy(request):
     async with s.refresh_lock, s.ledger.lock:
         if sum(m.memory_gb for m in s.models.values() if m.loaded)>data['budget_gb']-data['headroom_gb']: raise Fault('Unload models before reducing the budget below current use.',status=409)
         if data['runtimes']!=s.config.data['runtimes'] and any(m.loaded or m.state_uncertain for m in s.models.values()): raise Fault('Unload all models before changing runtime addresses.',status=409)
-        s.config.save(data); s.configure_adapters()
+        if data['runtimes']!=s.config.data['runtimes'] and any(not j['task'].done() for j in s.jobs.values()): raise Fault('Wait for downloads before changing runtime addresses.',status=409)
+        s.config.save(data); s.configure_adapters(); s.journal.prune(data['log_retention_days'])
     return web.json_response(s.config.data)
 async def model_action(request):
     s=request.app['service']; b=await body_json(request); id=b.get('model'); action=request.match_info['action']
@@ -251,6 +268,7 @@ async def model_action(request):
         await s.refresh(); m=s.models[id]; context=b.get('context',8192)
         if type(context) is not int: raise Fault('Context must be an integer.')
         if context<1024 or not m.context_max or context>m.context_max or not m.available or m.size_gb<=0: raise Fault('Invalid context or unavailable model.')
+        await s.adapters[m.runtime].ensure_local()
         await s.ledger.acquire(id,context); await s.ledger.release(id)
     elif action=='configure':
         patch=validate_catalog_patch(b.get('values',{}))
@@ -304,6 +322,7 @@ async def _inference(request):
     body={k:v for k,v in body.items() if k not in ('metadata','max_completion_tokens')}; body['max_tokens']=d['max_tokens']
     acquired=False; response=None; chunks=[]; start=time.perf_counter(); generator=None; response_bytes=0
     try:
+        await asyncio.wait_for(s.adapters[d['runtime']].ensure_local(),remaining())
         queue_start=time.perf_counter()
         async with asyncio.timeout(remaining()):
             m=await s.ledger.acquire(d['model'],d['context'],tools_required=inspect_payload(body,s.config.data)['tools']); acquired=True
@@ -337,7 +356,8 @@ async def _inference(request):
             d['status']='completed'; d['total_ms']=round((time.perf_counter()-start)*1000); d['usage']=result.get('usage',{})
             s.journal.decision(d); s.metrics['completed']+=1
             return web.json_response(anthropic_response(result) if anth else result,headers=headers(d))
-        response=web.StreamResponse(headers={**headers(d),'Content-Type':'text/event-stream','Cache-Control':'no-cache','X-Accel-Buffering':'no'})
+        response=web.StreamResponse(headers={**headers(d),'Content-Type':'text/event-stream','Cache-Control':'no-store',
+            'X-Accel-Buffering':'no','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'no-referrer'})
         await response.prepare(request)
         async def emit(event,data):
             prefix=f'event: {event}\n' if event else ''
@@ -372,16 +392,21 @@ async def _inference(request):
             await emit('message_delta',{'type':'message_delta','delta':{'stop_reason':finish['stop_reason'],'stop_sequence':None},'usage':finish['usage']})
             await emit('message_stop',{'type':'message_stop'})
         else: await asyncio.wait_for(response.write(b'data: [DONE]\n\n'),remaining())
+        await asyncio.wait_for(response.write_eof(),remaining())
         d['status']='completed'; d['total_ms']=round((time.perf_counter()-start)*1000); d['usage']=result.get('usage',{}); s.journal.decision(d); s.metrics['completed']+=1
-        await response.write_eof(); return response
+        return response
     except (asyncio.CancelledError,ConnectionResetError):
         d['status']='cancelled'; s.journal.decision(d); s.metrics['cancelled']+=1; raise
     except Exception as e:
         d['status']='failed'; d['error']=getattr(e,'code','runtime_error'); s.journal.decision(d); s.metrics['failed']+=1
         if response and response.prepared:
-            with contextlib.suppress(ConnectionResetError):
+            try:
                 payload={'error':{'type':'api_error','message':'Runtime stream failed; partial output was not retried.','code':d['error']}}
-                await response.write((('event: error\n' if anth else '')+'data: '+json.dumps(payload)+'\n\n').encode()); await response.write_eof()
+                async with asyncio.timeout(1):
+                    await response.write((('event: error\n' if anth else '')+'data: '+json.dumps(payload)+'\n\n').encode())
+                    await response.write_eof()
+            except (ConnectionError, asyncio.TimeoutError):
+                if request.transport: request.transport.close()
             return response
         raise
     finally:
@@ -395,6 +420,7 @@ def post_check(s,d,body,result):
     if fmt.get('type') in ('json_object','json_schema'):
         try:
             value=loads(result['choices'][0]['message']['content'])
+            if fmt['type']=='json_object' and not isinstance(value,dict): raise ValueError('Expected a JSON object.')
             if fmt['type']=='json_schema':
                 import jsonschema
                 jsonschema.validate(value,fmt['json_schema']['schema'])
@@ -468,27 +494,79 @@ async def escalation(request):
         p['status']='failed'; p.pop('payload',None); p['payload_bytes']=0; raise
     finally: s.resolve(p['id'])
 
+def start_download(s, runtime, model, expected=None, repository=None):
+    s.config.ensure_valid()
+    if runtime not in s.adapters: raise Fault('Enable the selected runtime in Settings.')
+    if s.adapters[runtime].url!=s.config.data['runtimes'].get(runtime): raise Fault('Refresh the runtime connection before downloading.','runtime_config_changed',503)
+    if sum(not v['task'].done() for v in s.jobs.values())>=2: raise Fault('Two downloads are already running.','overloaded',503)
+    if any(not v['task'].done() and v.get('model')==model and v.get('runtime')==runtime for v in s.jobs.values()):
+        raise Fault('This model is already downloading.','download_running',409)
+    while len(s.jobs)>=32:
+        victim=next((k for k,v in s.jobs.items() if v['task'].done()),None)
+        if victim is None: raise Fault('Download queue is full.','overloaded',503)
+        del s.jobs[victim]
+    id='job_'+secrets.token_hex(6); adapter=s.adapters[runtime]
+    if expected:
+        # Persist an admission block before invoking Ollama. A cancelled or
+        # failed verification must remain blocked even if Ollama installed it
+        # before disconnect, or the application restarts mid-download.
+        s.config.reload()
+        data=copy.deepcopy(s.config.catalog_data)
+        data.setdefault('models',{}).setdefault(runtime+'/'+model,{})['installation_verified']=False
+        atomic_yaml(s.config.overrides,data)
+        if runtime+'/'+model in s.models: s.models[runtime+'/'+model].installation_verified=False
+    def progress(value): s.jobs[id].update(value)
+    async def run():
+        try:
+            result=await adapter.pull(model,progress=progress,expected=expected)
+            if expected:
+                s.config.reload()
+                data=copy.deepcopy(s.config.catalog_data)
+                data.setdefault('models',{}).setdefault(runtime+'/'+model,{}).update(digest=expected['sha256'],installation_verified=True)
+                atomic_yaml(s.config.overrides,data)
+            s.jobs[id].update(result=result,status='completed',phase='Installed')
+            try: await s.refresh()
+            except Exception: s.jobs[id]['note']='Installed. Refresh your library to see the model.'
+        except asyncio.CancelledError:
+            if s.jobs[id]['status']!='completed': s.jobs[id].update(status='cancelled',phase='Cancelled; runtime may retain partial files')
+            raise
+        except Exception as exc:
+            s.jobs[id].update(status='failed',error=str(exc) if isinstance(exc,Fault) else 'Runtime download failed. Check connectivity, compatibility and disk space.')
+    s.jobs[id]={'id':id,'status':'running','runtime':runtime,'model':model,'repository':repository,
+                'phase':'Starting download','task':asyncio.create_task(run())}
+    return {'id':id,'status':'running'}
+
 async def pull(request):
     s=request.app['service']; b=await body_json(request)
     if b.get('confirmed') is not True: raise Fault('Explicit download confirmation is required.')
     runtime=b.get('runtime'); model=b.get('model')
     if runtime not in s.adapters or not isinstance(model,str): raise Fault('Choose a runtime and model.')
-    if sum(not v['task'].done() for v in s.jobs.values())>=2: raise Fault('Two downloads are already running.','overloaded',503)
-    while len(s.jobs)>=32:
-        victim=next((k for k,v in s.jobs.items() if v['task'].done()),None)
-        if victim is None: raise Fault('Download queue is full.','overloaded',503)
-        del s.jobs[victim]
-    id='job_'+secrets.token_hex(6)
-    async def run():
-        try:
-            s.jobs[id]['result']=await s.adapters[runtime].pull(model); s.jobs[id]['status']='completed'; await s.refresh()
-        except asyncio.CancelledError: s.jobs[id]['status']='cancelled'; raise
-        except Exception: s.jobs[id]['status']='failed'; s.jobs[id]['error']='Runtime download failed.'
-    s.jobs[id]={'id':id,'status':'running','task':asyncio.create_task(run())}
-    return web.json_response({'id':id,'status':'running'},status=202)
+    return web.json_response(start_download(s,runtime,model),status=202)
+
+async def hub_search(request):
+    b=await body_json(request)
+    return web.json_response(await request.app['service'].hub.search(b.get('query')))
+
+async def hub_inspect(request):
+    b=await body_json(request)
+    return web.json_response(await request.app['service'].hub.inspect(b.get('repository')))
+
+async def hub_install(request):
+    s=request.app['service']; b=await body_json(request)
+    if b.get('confirmed') is not True: raise Fault('Review and confirm the selected download.','confirmation_required',403)
+    if 'ollama' not in s.adapters: raise Fault('Enable Ollama in Settings before downloading from Hugging Face.')
+    file,repo=await s.hub.selection(b.get('preview_id'),b.get('filename'))
+    installed=s.models.get('ollama/'+file['model'])
+    if installed and installed.installation_verified: raise Fault('This model is already installed. Find it in your library.','already_installed',409)
+    return web.json_response(start_download(s,'ollama',file['model'],file,repo),status=202)
+
 async def job(request):
     v=request.app['service'].jobs.get(request.match_info['id'])
     if not v: raise Fault('Job not found.','not_found',404)
+    if request.method=='POST' and not v['task'].done() and v['status']=='running':
+        v['task'].cancel()
+        with contextlib.suppress(asyncio.CancelledError): await v['task']
+        if v['status']=='running': v.update(status='cancelled',phase='Cancelled before starting')
     return web.json_response({k:x for k,x in v.items() if k!='task'})
 
 async def create_app(path):
@@ -502,7 +580,8 @@ async def create_app(path):
     app.router.add_post('/switchyard/models/{action:load|unload|configure}',model_action)
     app.router.add_post('/switchyard/recover',recover)
     app.router.add_get('/switchyard/escalations',queue_list); app.router.add_get('/switchyard/escalations/{id}',queue_detail); app.router.add_post('/switchyard/escalations/{id}',escalation)
-    app.router.add_post('/switchyard/pull',pull); app.router.add_get('/switchyard/jobs/{id}',job)
+    app.router.add_post('/switchyard/pull',pull); app.router.add_get('/switchyard/jobs/{id}',job); app.router.add_post('/switchyard/jobs/{id}/cancel',job)
+    app.router.add_post('/switchyard/hub/search',hub_search); app.router.add_post('/switchyard/hub/inspect',hub_inspect); app.router.add_post('/switchyard/hub/install',hub_install)
     async def start(app): await s.start()
     async def stop(app): await s.stop()
     app.on_startup.append(start); app.on_cleanup.append(stop)

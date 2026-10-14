@@ -17,6 +17,8 @@ async def main(args):
         c.data.update(runtimes={'ollama':args.runtime},runtime_local_only_confirmed=True,budget_gb=6,headroom_gb=1,request_timeout=90,escalation_mode='off')
         c.save(c.data)
         async with aiohttp.ClientSession(trust_env=False) as runtime:
+            async with runtime.get(args.runtime+'/api/ps') as r:
+                report['initially_loaded']=any(m.get('name')==args.model for m in (await r.json())['models'])
             async with runtime.get(args.runtime+'/api/version') as r: report['runtime_version']=await r.json()
             async with runtime.get(args.runtime+'/api/tags') as r:
                 tag=next(m for m in (await r.json())['models'] if m['name']==args.model)
@@ -39,11 +41,14 @@ async def main(args):
                 report['checks'][name]=r.status==200 and case.get('completed',False) and case.get('receipt_matches',False) and case.get('journal_status')=='completed'
                 return case
         try:
-            await run_case('cold_text','Reply with the single word SWITCHYARD.')
+            await run_case('first_text' if report['initially_loaded'] else 'cold_text','Reply with the single word SWITCHYARD.')
             await run_case('warm_stream','What is two plus two? Reply briefly.',stream=True)
             await run_case('json_output','Return exactly a JSON object with one key "ok" and boolean true.',response_format={'type':'json_object'})
             for i in range(3): await run_case('repeat_'+str(i),'Reply with the single word READY.')
-            async with client.post('/switchyard/models/unload',json={'model':model},headers=auth) as r: report['checks']['managed_unload']=r.status==200; await r.read()
+            if report['initially_loaded']:
+                report['checks']['existing_loaded_model_preserved']=s.models[model].loaded and not s.models[model].managed
+            else:
+                async with client.post('/switchyard/models/unload',json={'model':model},headers=auth) as r: report['checks']['managed_unload']=r.status==200; await r.read()
             report['checks']['active_released']=sum(m.active for m in s.models.values())==0
         finally: await client.close()
     args.output.parent.mkdir(parents=True,exist_ok=True); args.output.write_text(json.dumps(report,indent=2)+'\n'); print(json.dumps(report,indent=2))

@@ -1,6 +1,7 @@
 """Disposable real HTTP peers: no connection to installed models or providers."""
 import asyncio
 import json
+import hashlib
 from aiohttp import web
 from aiohttp.test_utils import TestServer
 
@@ -12,9 +13,10 @@ class Runtime:
         self.loaded={}; self.active={}; self.loads=0; self.generations=0
         self.evicted_active=0; self.unloads=0; self.cancelled=0
         self.fail_load=False; self.fail_unload=False; self.delay=.001
+        self.cloud_disabled=True; self.show_calls=0
         self.app=web.Application()
         for method,path,handler in (
-            ('GET','/api/tags',self.tags),('GET','/api/ps',self.ps),('POST','/api/show',self.show),
+            ('GET','/api/status',self.status),('GET','/api/tags',self.tags),('GET','/api/ps',self.ps),('POST','/api/show',self.show),
             ('POST','/api/generate',self.generate),('POST','/api/chat',self.chat),
             ('GET','/api/v1/models',self.lm_models),('POST','/api/v1/models/load',self.lm_load),
             ('POST','/api/v1/models/unload',self.lm_unload),('POST','/v1/chat/completions',self.chat),
@@ -31,12 +33,16 @@ class Runtime:
         await self.server.close()
 
     async def tags(self,r):
-        return web.json_response({'models':[{'name':n,'size':400*1024**2,'details':{'format':'gguf','quantization_level':'Q4_K_M'}} for n in self.names]})
+        return web.json_response({'models':[{'name':n,'digest':hashlib.sha256(n.encode()).hexdigest(),'size':400*1024**2,'details':{'format':'gguf','quantization_level':'Q4_K_M'}} for n in self.names]})
+
+    async def status(self,r):
+        return web.json_response({'cloud':{'disabled':self.cloud_disabled}})
 
     async def ps(self,r):
         return web.json_response({'models':[{'name':n,'size':600*1024**2,'context_length':c} for n,c in self.loaded.items()]})
 
     async def show(self,r):
+        self.show_calls+=1
         b=await r.json()
         if b.get('model') not in self.names: raise web.HTTPNotFound()
         return web.json_response({'model_info':{'fixture.context_length':65536,'fixture.block_count':16,

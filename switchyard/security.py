@@ -47,7 +47,7 @@ def bounded_tree(value, *, depth=MAX_DEPTH, nodes=MAX_NODES):
 
 
 def loads(data, *, limit=MAX_BODY):
-    if len(data) > limit:
+    if len(data.encode('utf-8') if isinstance(data, str) else data) > limit:
         raise ValueError('JSON exceeds the byte limit.')
     def pairs(values):
         result = {}

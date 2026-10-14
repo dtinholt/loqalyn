@@ -1,0 +1,21 @@
+{
+  "version": "0.3.0-alpha.2",
+  "environment": "isolated test profile, port 18742, simulated Ollama; real public Hugging Face catalogue",
+  "checks": {
+    "native_launch": true,
+    "discover_screen_rendered": true,
+    "live_hugging_face_search": true,
+    "repository_selection": true,
+    "file_size_precision_license_display": true,
+    "download_review_dialog": true,
+    "cancel_before_download": true,
+    "synthetic_generation_completed": true,
+    "answer_first_control_rendered": true,
+    "review_app_quit_and_port_released": true
+  },
+  "limits": [
+    "No actual model download triggered through the UI; full download/installation/inference exercised separately through the same API.",
+    "Minor final label/color/default-setting adjustments covered by import and regression checks after visual inspection.",
+    "Initial computer-use launch operation stalled; subsequent native interactions completed."
+  ]
+}

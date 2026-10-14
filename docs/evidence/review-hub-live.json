@@ -1,0 +1,34 @@
+{
+  "kind": "Hugging Face live search, install, local inference",
+  "checks": {
+    "search": true,
+    "installed": true,
+    "catalog": true,
+    "digest_recorded": true,
+    "generated": true,
+    "released": true,
+    "test_model_cleanup": true
+  },
+  "repository": "bartowski/SmolLM2-135M-Instruct-GGUF",
+  "revision": "09816acd5d99df7be770d85ea30822623dab342c",
+  "file": "SmolLM2-135M-Instruct-Q4_K_M.gguf",
+  "size_bytes": 105454432,
+  "sha256": "2e8040ceae7815abe0dcb3540b9995eaa1fa0d2ca9e797d0a635ae4433c68c2d",
+  "install_seconds": 100.2,
+  "job": {
+    "status": "completed",
+    "runtime": "ollama",
+    "model": "hf.co/bartowski/SmolLM2-135M-Instruct-GGUF:SmolLM2-135M-Instruct-Q4_K_M.gguf",
+    "repository": "bartowski/SmolLM2-135M-Instruct-GGUF",
+    "phase": "Installed",
+    "total_bytes": 0,
+    "completed_bytes": 0,
+    "percent": null,
+    "result": {
+      "status": "success",
+      "verified_sha256": "2e8040ceae7815abe0dcb3540b9995eaa1fa0d2ca9e797d0a635ae4433c68c2d"
+    }
+  },
+  "answer": "Two plus two is an arithmetic operation in the number system where one number is the sum of two other numbers. It is denoted by the symbol \"2+2.\"",
+  "note": "Small validation model tested transport and installation, not answer quality. Removed after testing so it cannot become the user default."
+}

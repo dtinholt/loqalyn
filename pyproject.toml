@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "switchyard-local"
-version = "0.3.0a1"
+version = "0.3.0a2"
 description = "A local-first model gateway for Ollama and LM Studio on macOS"
 requires-python = ">=3.12"
 license = "MIT"

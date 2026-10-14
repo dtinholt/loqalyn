@@ -84,7 +84,7 @@ def main():
     shutil.copy2(ROOT/'macos/dependencies.lock.json',resources/'build-manifest.json')
     info={'CFBundleName':'Switchyard','CFBundleDisplayName':'Switchyard','CFBundleIdentifier':'dev.switchyard.desktop',
           'CFBundleExecutable':'Switchyard','CFBundleIconFile':'Switchyard.icns','CFBundlePackageType':'APPL',
-          'CFBundleShortVersionString':'0.3.0','CFBundleVersion':'3','LSMinimumSystemVersion':'13.0',
+          'CFBundleShortVersionString':'0.3.0','CFBundleVersion':'4','LSMinimumSystemVersion':'13.0',
           'NSHighResolutionCapable':True,'NSPrincipalClass':'NSApplication','LSApplicationCategoryType':'public.app-category.developer-tools'}
     (contents/'Info.plist').write_bytes(plistlib.dumps(info)); (contents/'PkgInfo').write_text('APPL????')
     subprocess.run(['xcrun','clang','-arch','arm64','-mmacosx-version-min=13.0','-O2',str(ROOT/'macos/launcher.c'),'-o',str(binary/'Switchyard')],check=True)

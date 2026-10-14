@@ -16,7 +16,7 @@ import yaml
 from .core import validate_catalog_patch, validate_policy
 from .security import loads
 
-PAGES = ("Overview", "Models", "Playground", "Policies", "Activity", "Escalations", "Settings")
+PAGES = ("Overview", "Models", "Discover", "Playground", "Policies", "Activity", "Escalations", "Settings")
 ROUTE_NAMES = {"quick_chat": "Everyday tasks", "code_edit": "Code & development", "long_document": "Long documents", "hard_reasoning": "Deep reasoning"}
 RUNTIME_NAMES = {"ollama": "Ollama", "lmstudio": "LM Studio"}
 
@@ -89,6 +89,7 @@ def filtered_models(state: dict, query: str = "") -> list[dict]:
 
 
 def model_status(model: dict) -> str:
+    if not model.get('installation_verified',True): return 'Install incomplete'
     if model.get("state_uncertain"):
         return "Recovery required"
     if model.get("available") is False:
@@ -106,12 +107,14 @@ def model_summary(model: dict) -> str:
     features=', '.join(str(x).replace('_',' ').title() for x in model.get('capabilities',[])) or 'Not reported'
     ownership='Managed by Switchyard' if model.get('managed') else 'Managed by the runtime' if model.get('loaded') else 'Available to load'
     return '\n'.join([model.get('name',model['id']), model_status(model)+'  ·  '+RUNTIME_NAMES.get(model['runtime'],model['runtime']), '',
+        'Model family              '+model.get('family','Unknown')+'  ·  '+model.get('parameters','Unknown')+' parameters',
         'Memory estimate     '+memory, 'Maximum context     '+context, 'Capabilities              '+features,
         'Tool use                    '+('Verified by you' if model.get('tools_verified') else 'Not yet verified'),
         'Lifecycle                    '+ownership, '', 'Model ID: '+model['id']])
 
 
 def load_blocker(model: dict, state: dict) -> str | None:
+    if not model.get('installation_verified',True): return 'Retry this model download in Discover to complete verification.'
     if not state.get("policy", {}).get("runtime_local_only_confirmed"):
         return "Confirm local runtime setup in Settings before loading models."
     if model.get("state_uncertain"):
@@ -165,6 +168,8 @@ def decision_text(decision: dict) -> str:
         lines += ["", "Excluded by constraints"]
         for item in decision["exclusions"]:
             lines.append("  " + item["id"] + ": " + ", ".join(item.get("reasons", [])).replace("_", " "))
+            if 'memory_budget' in item.get('reasons',[]) and 'memory_gb' in item:
+                lines.append(f"    Needs about {item['memory_gb']:.1f} GiB; {item['available_gb']:.1f} GiB available within your policy.")
     return "\n".join(lines)
 
 
@@ -237,12 +242,12 @@ class StreamBuffer:
                 item["name"] += function.get("name") or ""
                 item["arguments"] += function.get("arguments") or ""
 
-    def text(self) -> str:
+    def text(self, show_reasoning=False) -> str:
         parts = []
-        if self.reasoning:
-            parts.append("MODEL REASONING\n" + self.reasoning)
         if self.content:
             parts.append(self.content)
         if self.tools:
             parts.append("TOOL CALLS (not executed by this playground)\n" + pretty(list(self.tools.values())))
+        if show_reasoning and self.reasoning:
+            parts.append("MODEL REASONING\n" + self.reasoning)
         return "\n\n".join(parts)

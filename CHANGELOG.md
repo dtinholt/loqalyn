@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0-alpha.2 — 2026-10-14
+
+- Add a native Discover page for public Hugging Face GGUF search, repository inspection, file sizes/licenses, confirmed Ollama install, progress and cancellation.
+- Recheck repository revisions and weight digests; persist admission blocks for incomplete installations.
+- Check Ollama cloud settings before inference, simplify Ollama-only setup verification and enable only Ollama in new profiles.
+- Move network discovery outside the ledger lock, reject stale snapshots, cache bounded manifest metadata, and remove repeated protected-memory scans.
+- Honor explicit attention K/V dimensions in memory estimates, including Qwen3.
+- Bound stream-error cleanup, enforce JSON object responses and UTF-8 byte limits, and apply log-retention changes during operation.
+- Show answers before optional reasoning, throttle streaming redraws and show model family/parameter information and useful memory exclusion details.
+- Add targeted regression tests, refreshed stress evidence and a live Hugging Face installation check. See [second review](docs/SECOND-REVIEW.md).
+
 ## 0.3.0-alpha.1
 
 Reconstructs a complete, buildable source tree from the supplied 0.2.0 app. The unavailable 0.2.1 source is not a dependency of this release.

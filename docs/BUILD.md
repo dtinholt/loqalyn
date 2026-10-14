@@ -6,7 +6,7 @@ Use an Apple silicon Mac, Python 3.12+, Apple's command line tools, and network 
 python3 macos/build_app.py --output build/release --cache build/downloads
 build/release/Switchyard.app/Contents/MacOS/Switchyard --cli --help
 codesign --verify --deep --strict build/release/Switchyard.app
-python3 scripts/package_app.py build/release/Switchyard.app dist/Switchyard-0.3.0-alpha.1-Mac-Apple-Silicon.zip
+python3 scripts/package_app.py build/release/Switchyard.app dist/Switchyard-0.3.0-alpha.2-Mac-Apple-Silicon.zip
 ```
 
 The builder verifies SHA-256 hashes before extraction, bundles Python 3.12.15 and the exact macOS wheels in `macos/dependencies.lock.json`, compiles the full C launcher, signs nested binaries, and verifies the app. It excludes development-only PyObjC bundles and unused pip installation tooling. Runtime and package notices are preserved. `--base-bundle` is a development shortcut; published builds use normal downloads.

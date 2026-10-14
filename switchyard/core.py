@@ -14,7 +14,7 @@ DEFAULTS = {
     "load_timeout": 120, "request_timeout": 600, "queue_timeout": 30,
     "escalation_mode": "flag", "sensitive_terms": [], "log_retention_days": 30,
     "runtime_local_only_confirmed": False,
-    "runtimes": {"ollama": "http://127.0.0.1:11434", "lmstudio": "http://127.0.0.1:1234"},
+    "runtimes": {"ollama": "http://127.0.0.1:11434"},
     "routes": [
         {"name": "code_edit", "description": "Write, refactor, debug and review code", "keywords": ["code", "python", "function", "debug", "refactor", "typescript", "sql", "bug"], "prefer": [], "enabled": True},
         {"name": "long_document", "description": "Summarize and question long documents", "keywords": ["document", "summarize", "contract", "report"], "prefer": [], "enabled": True},
@@ -103,7 +103,7 @@ def validate_policy(value):
     return result
 
 
-CATALOG_FIELDS = {'context_max', 'size_gb', 'kv_gb_per_1k', 'tools_verified', 'tier', 'digest', 'task_scores', 'name', 'speed_tps'}
+CATALOG_FIELDS = {'context_max', 'size_gb', 'kv_gb_per_1k', 'tools_verified', 'tier', 'digest', 'task_scores', 'name', 'speed_tps', 'installation_verified'}
 
 
 def validate_catalog_patch(value):
@@ -114,6 +114,7 @@ def validate_catalog_patch(value):
     if 'context_max' in result and not _number(result['context_max'], minimum=1, maximum=16777216, integer=True):
         raise Fault("context_max must be a positive integer.")
     if 'tools_verified' in result and not isinstance(result['tools_verified'], bool): raise Fault("tools_verified must be boolean.")
+    if 'installation_verified' in result and not isinstance(result['installation_verified'], bool): raise Fault("installation_verified must be boolean.")
     if result.get('tier', 'on_demand') not in ('resident', 'on_demand', 'archive'): raise Fault("Invalid tier.")
     if 'digest' in result and result['digest'] is not None:
         if not isinstance(result['digest'], str) or not re.fullmatch('[a-f0-9]{64}', result['digest']):
@@ -224,6 +225,9 @@ class Model:
     digest: str | None = None
     quant: str = 'Unknown'
     format: str = 'gguf'
+    family: str = 'Unknown'
+    parameters: str = 'Unknown'
+    installation_verified: bool = True
     kv_gb_per_1k: float = 1.0
     speed_tps: float | None = None
     task_scores: dict = field(default_factory=dict)
@@ -260,20 +264,23 @@ class Journal:
         self.db.execute('CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY, created REAL, kind TEXT, data TEXT)')
         self.db.execute('CREATE INDEX IF NOT EXISTS decisions_created ON decisions(created)')
         self.db.execute('CREATE INDEX IF NOT EXISTS events_created ON events(created)')
-        self.writes=0
+        self.writes=0; self.retention_days=30; self.last_prune=0
         # Existing databases may be user-edited: reject executable schema objects.
         if self.db.execute("SELECT 1 FROM sqlite_master WHERE type IN ('trigger','view') OR lower(sql) LIKE '%virtual table%' LIMIT 1").fetchone():
             self.db.close(); raise ValueError('Unexpected executable database schema.')
     def decision(self,data):
         # Never persist prompts, messages, tool definitions, or model output.
+        if self.retention_days == 0: return
         self.db.execute('INSERT OR REPLACE INTO decisions VALUES(?,?,?)',(data['id'],data['created'],json.dumps(data)))
         self._periodic_retention()
     def event(self,kind,data):
+        if self.retention_days == 0: return
         self.db.execute('INSERT INTO events(created,kind,data) VALUES(?,?,?)',(time.time(),kind,json.dumps(data)))
         self._periodic_retention()
     def _periodic_retention(self):
         self.writes+=1
         if self.writes%100==0:
+            self.prune(self.retention_days)
             self._bounded_retention('decisions',10000); self._bounded_retention('events',10000)
     def _bounded_retention(self,table,limit):
         self.db.execute(f'DELETE FROM {table} WHERE rowid IN (SELECT rowid FROM {table} ORDER BY created DESC LIMIT -1 OFFSET ?)',(limit,))
@@ -288,8 +295,15 @@ class Journal:
     def get(self,id):
         row=self.db.execute('SELECT data FROM decisions WHERE id=?',(id,)).fetchone(); return json.loads(row[0]) if row else None
     def prune(self,days):
+        self.retention_days=days; self.last_prune=time.monotonic()
         cutoff=time.time()-days*86400
-        for table in ('decisions','events'): self.db.execute(f'DELETE FROM {table} WHERE created < ?',(cutoff,))
+        for table in ('decisions','events'):
+            if days == 0: self.db.execute(f'DELETE FROM {table}')
+            else: self.db.execute(f'DELETE FROM {table} WHERE created < ?',(cutoff,))
+
+    def maintain(self, days):
+        if days != self.retention_days or time.monotonic()-self.last_prune >= 60:
+            self.prune(days)
 
 
 def _schema(value):
@@ -417,9 +431,12 @@ def route(body,models,policy):
     if features['context']>32768: chosen_route=next((r for r in enabled if r['name']=='long_document'),chosen_route)
     exclusions=[]; candidates=[]; all_models=list(models.values()); explicit=virtual not in ('auto','auto-fast','auto-code')
     budget=policy['budget_gb']-policy['headroom_gb']
+    protected={m.id:m.memory_gb for m in all_models if m.loaded and (m.active or m.tier=='resident' or not m.managed)}
+    protected_total=sum(protected.values())
     for m in all_models:
         reasons=[]
         if not m.available: reasons.append('runtime_offline')
+        if not m.installation_verified: reasons.append('installation_unverified')
         if m.state_uncertain: reasons.append('runtime_state_unknown')
         if 'chat' not in m.capabilities: reasons.append('not_chat_model')
         if not explicit and m.tier=='archive': reasons.append('archived')
@@ -429,9 +446,11 @@ def route(body,models,policy):
         if not m.context_max or features['context']>m.context_max: reasons.append('context_limit')
         if m.size_gb<=0: reasons.append('memory_unknown')
         memory=max(m.memory_gb,m.footprint(m.loaded_context)) if m.loaded and m.loaded_context>=features['context'] else m.footprint(features['context'])
-        locked=sum(other.memory_gb for other in all_models if other.loaded and other.id!=m.id and (other.active or other.tier=='resident' or not other.managed))
+        locked=protected_total-protected.get(m.id,0)
         if memory+locked>budget: reasons.append('memory_budget')
-        if reasons: exclusions.append({'id':m.id,'reasons':reasons}); continue
+        if reasons:
+            exclusions.append({'id':m.id,'reasons':reasons,'memory_gb':memory,'available_gb':round(max(0,budget-locked),3)})
+            continue
         prefer=chosen_route.get('prefer',[])
         preference=(len(prefer)-prefer.index(m.id))*15 if m.id in prefer else (len(prefer)-prefer.index(m.handle))*15 if m.handle in prefer else 0
         quality=m.task_scores.get(chosen_route['name'])
@@ -461,11 +480,16 @@ class Ledger:
         self.models = models; self.adapters = adapters; self.config = config; self.journal = journal
         self.lock = asyncio.Lock(); self.model_locks = {}; self.uncertain_runtimes = set()
         self._leases = {}; self._context_leases = contextvars.ContextVar('switchyard_leases', default=None)
+        self.revisions = {}
+
+    def changed(self, runtime):
+        self.revisions[runtime] = self.revisions.get(runtime, 0) + 1
 
     def _policy(self):
         return self.config.ensure_valid() if hasattr(self.config, 'ensure_valid') else self.config.data
 
     def _uncertain(self, model, reserve):
+        self.changed(model.runtime)
         model.loaded = True; model.memory_gb = max(model.memory_gb, reserve)
         model.state_uncertain = True; model.available = False
         self.uncertain_runtimes.add(model.runtime)
@@ -487,7 +511,9 @@ class Ledger:
                 raise Fault("Runtime state is uncertain after an interrupted operation. Restart that runtime and explicitly recover it.", 'runtime_state_unknown', 503)
             m = self.models.get(id)
             if not m: raise Fault("Model disappeared from the catalog.", 'model_missing', 409)
+            self.changed(m.runtime)
             if not m.available or m.runtime not in self.adapters: raise Fault("Runtime is offline.", 'runtime_offline', 503)
+            if not m.installation_verified: raise Fault("This installation has not passed verification. Retry its download in Discover.", 'installation_unverified', 409)
             if tools_required and not m.tools_verified: raise Fault('Tool verification changed while queued.', 'tools_unverified', 422)
             if 'chat' not in m.capabilities or not _number(m.size_gb, minimum=.000001) or not _number(m.kv_gb_per_1k, minimum=.000001):
                 raise Fault("Model metadata is insufficient for memory admission.", 'memory_unknown', 422)
@@ -546,13 +572,15 @@ class Ledger:
             if lease is None or self._leases.get(id) != lease: return
             self._leases.pop(id, None)
             m = self.models.get(id)
-            if m: m.active = max(0, m.active - 1); m.last_used = time.time()
+            if m:
+                m.active = max(0, m.active - 1); m.last_used = time.time(); self.changed(m.runtime)
             self.model_locks[id].release()
 
     async def _unload(self, m):
         if m.active: raise Fault("Cannot unload a model with an active request.", 'model_busy', 409)
         if not m.managed or m.instance_count > 1:
             raise Fault("Unload externally managed instances in their runtime.", 'external_instance', 409)
+        self.changed(m.runtime)
         try:
             await asyncio.wait_for(self.adapters[m.runtime].unload(m), self.config.data['load_timeout'])
         except BaseException:

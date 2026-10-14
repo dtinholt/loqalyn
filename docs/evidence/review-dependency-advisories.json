@@ -1,0 +1,132 @@
+[
+  {
+    "name": "aiohappyeyeballs",
+    "version": "2.7.1",
+    "vulnerabilities": []
+  },
+  {
+    "name": "aiohttp",
+    "version": "3.14.5",
+    "vulnerabilities": []
+  },
+  {
+    "name": "aiosignal",
+    "version": "1.4.0",
+    "vulnerabilities": []
+  },
+  {
+    "name": "attrs",
+    "version": "26.1.0",
+    "vulnerabilities": []
+  },
+  {
+    "name": "certifi",
+    "version": "2026.7.22",
+    "vulnerabilities": []
+  },
+  {
+    "name": "frozenlist",
+    "version": "1.8.0",
+    "vulnerabilities": []
+  },
+  {
+    "name": "idna",
+    "version": "3.20",
+    "vulnerabilities": []
+  },
+  {
+    "name": "importlib_metadata",
+    "version": "9.0.1",
+    "vulnerabilities": []
+  },
+  {
+    "name": "jaraco.classes",
+    "version": "3.4.0",
+    "vulnerabilities": []
+  },
+  {
+    "name": "jaraco.context",
+    "version": "6.1.2",
+    "vulnerabilities": []
+  },
+  {
+    "name": "jaraco.functools",
+    "version": "4.6.0",
+    "vulnerabilities": []
+  },
+  {
+    "name": "jsonschema",
+    "version": "4.26.0",
+    "vulnerabilities": []
+  },
+  {
+    "name": "jsonschema-specifications",
+    "version": "2025.9.1",
+    "vulnerabilities": []
+  },
+  {
+    "name": "keyring",
+    "version": "25.7.0",
+    "vulnerabilities": []
+  },
+  {
+    "name": "more-itertools",
+    "version": "11.2.0",
+    "vulnerabilities": []
+  },
+  {
+    "name": "multidict",
+    "version": "7.1.0",
+    "vulnerabilities": []
+  },
+  {
+    "name": "propcache",
+    "version": "0.5.4",
+    "vulnerabilities": []
+  },
+  {
+    "name": "pyobjc-core",
+    "version": "12.2.2",
+    "vulnerabilities": []
+  },
+  {
+    "name": "pyobjc-framework-Cocoa",
+    "version": "12.2.2",
+    "vulnerabilities": []
+  },
+  {
+    "name": "PyYAML",
+    "version": "6.0.3",
+    "vulnerabilities": []
+  },
+  {
+    "name": "referencing",
+    "version": "0.37.0",
+    "vulnerabilities": []
+  },
+  {
+    "name": "rpds-py",
+    "version": "2026.9.1",
+    "vulnerabilities": []
+  },
+  {
+    "name": "typing_extensions",
+    "version": "4.16.0",
+    "vulnerabilities": []
+  },
+  {
+    "name": "yarl",
+    "version": "1.25.1",
+    "vulnerabilities": []
+  },
+  {
+    "name": "zipp",
+    "version": "4.1.1",
+    "vulnerabilities": []
+  },
+  {
+    "name": "apsw",
+    "version": "3.54.0.0",
+    "vulnerabilities": []
+  }
+]
