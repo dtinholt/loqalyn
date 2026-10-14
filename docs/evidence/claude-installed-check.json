@@ -1,0 +1,16 @@
+{
+  "version": "0.4.0a1",
+  "installed_modules_match_source": true,
+  "admin_token_preserved": true,
+  "policy_preserved": true,
+  "global_claude_settings_preserved": true,
+  "catalogue_changed_for_model_verification": true,
+  "coding_ready": true,
+  "ready_models": [
+    "ollama/qwen3.5:4b"
+  ],
+  "active_requests": 0,
+  "native_project_picker_checked": true,
+  "native_terminal_launch_accepted": true,
+  "terminal_visual_check": "Unavailable: computer-control tool blocks Terminal; actual CLI workflow passed separately."
+}

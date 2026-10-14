@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import secrets
 import stat
+from functools import lru_cache
 
 MAX_BODY = 2 * 1024 * 1024
 MAX_RESPONSE = 2 * 1024 * 1024
@@ -154,6 +155,41 @@ def schema_subset(schema):
         for key in ('items', 'additionalProperties'):
             if key in node:
                 stack.append(node[key])
+
+
+def tool_schema(schema):
+    """Tool schemas are bounded data forwarded to a model, never evaluated here.
+
+    Keep output-schema validation on schema_subset: unlike tool declarations,
+    those schemas are executed locally against untrusted model output.
+    """
+    if not isinstance(schema, dict) or schema.get('type', 'object') != 'object':
+        raise ValueError('Tool input schema must describe an object.')
+    bounded_tree(schema, depth=20, nodes=4096)
+    serialized=json.dumps(schema,sort_keys=True)
+    if len(serialized.encode()) > 128 * 1024:
+        raise ValueError('Tool schema exceeds the size limit.')
+    _checked_tool_schema(serialized)
+
+
+@lru_cache(maxsize=64)
+def _checked_tool_schema(serialized):
+    # Repeated coding requests reuse declarations. Cache only successful,
+    # bounded checks (at most 8 MiB of schema text), never model arguments.
+    schema=json.loads(serialized)
+    stack = [schema]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            for key in ('$ref', '$dynamicRef', '$recursiveRef'):
+                if key in node and (not isinstance(node[key], str) or not node[key].startswith('#/')):
+                    raise ValueError('External tool-schema references are disabled.')
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
+    # Metaschema checking does not expand references in the supplied schema.
+    import jsonschema
+    jsonschema.Draft202012Validator.check_schema(schema)
 
 
 def privacy_tags(text, policy, private=False):

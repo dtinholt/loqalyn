@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0-alpha.1 — 2026-10-14
+
+- Add native Claude Code setup, local model readiness checks, a two-request tool verification, project selection, and a Terminal launcher with an isolated client profile.
+- Automatically select eligible local coding models and persist task locks across tool calls, retries, compaction and gateway restarts. New tasks may choose a different model; missing or changed pinned models fail explicitly.
+- Use a separate inference-only credential, preserve Claude Code's tool permissions, filter inherited cloud credentials, and keep coding requests out of cloud escalation.
+- Accept bounded Claude Code tool schemas and cache hints; add conservative token estimation, Anthropic-shaped errors, model discovery and stream heartbeats. Reject unsupported thinking, media, hosted tools and forced tool choices.
+- Tie coding tool verification to each Ollama manifest revision. Include model readiness reasons and recent task/model locks in the interface.
+- Add actual Claude Code client workflow tests, HTTP concurrency and restart tests, security regressions, and reproducible synthetic and real-model validation. See [Claude Code setup and limits](docs/CLAUDE-CODE.md).
+
 ## 0.3.0-alpha.3 — 2026-10-14
 
 - Rename the app and public project to **Loqalyn** to avoid confusion with NVIDIA NeMo Switchyard.

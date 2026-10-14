@@ -105,6 +105,8 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         self.policy_loaded = False
         self.settings_loaded = False
         self.last_connection_error = None
+        self.claude_client = {'compatible':False,'message':'Checking Claude Code…'}
+        self.claude_project = None
         return self
 
     def applicationDidFinishLaunching_(self, notification):
@@ -405,7 +407,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         style = C.NSWindowStyleMaskTitled | C.NSWindowStyleMaskClosable | C.NSWindowStyleMaskMiniaturizable | C.NSWindowStyleMaskResizable
         self.window = C.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(rect(0, 0, WIDTH, HEIGHT), style, C.NSBackingStoreBuffered, False)
         self.window.setTitle_("Loqalyn")
-        self.window.setMinSize_(F.NSMakeSize(1160, 700))
+        self.window.setMinSize_(F.NSMakeSize(1160, 760))
         self.window.setAppearance_(C.NSAppearance.appearanceNamed_(C.NSAppearanceNameAqua))
         self.window.setBackgroundColor_(CANVAS)
         self.window.setTitlebarAppearsTransparent_(True)
@@ -422,7 +424,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         self._label(self.sidebar, "Loqalyn", 57, 34, 140, 28, size=19, bold=True).setTextColor_(SURFACE)
         self._label(self.sidebar, "LOCAL MODEL ROUTER", 25, 72, 175, 18, size=9).setTextColor_(NAV_TEXT)
         self._label(self.sidebar, "WORKSPACE", 25, 114, 165, 18, size=10).setTextColor_(color('769399'))
-        symbols=("square.grid.2x2", "square.stack.3d.up", "magnifyingglass", "sparkles", "slider.horizontal.3", "clock.arrow.circlepath", "checkmark.shield", "gearshape")
+        symbols=("square.grid.2x2", "square.stack.3d.up", "magnifyingglass", "sparkles", "terminal", "slider.horizontal.3", "clock.arrow.circlepath", "checkmark.shield", "gearshape")
         for index, name in enumerate(PAGES):
             button = self._button(self.sidebar, name, 14, 141 + index * 44, SIDEBAR - 28, lambda page=name: self._navigate(page))
             button.setFrameSize_(F.NSMakeSize(SIDEBAR-28,38))
@@ -446,6 +448,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         self._build_models()
         self._build_discover()
         self._build_playground()
+        self._build_claude()
         self._build_policies()
         self._build_activity()
         self._build_escalations()
@@ -859,6 +862,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
                 self.last_connection_error = str(error)
                 self._status("Connection issue: " + str(error))
             else:
+                if key == 'claude-verify': self.claude_check_note.setStringValue_('Tool check failed. '+str(error)[:180])
                 if key == "generation":
                     self.stream_cancel = None
                     self.play_status.setStringValue_("Generation stopped: " + str(error))
@@ -891,6 +895,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         self.started = True
         self._apply_state(state)
         self._status("Local service ready at " + self.controller.endpoint)
+        self._check_claude()
 
     @objc.python_method
     def _refresh(self, discover=False, quiet=False):
@@ -946,6 +951,7 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         if self.review_request_id and (not selected or selected.get('status')!='pending'):
             self._clear_review()
         self._update_play_models()
+        self._update_claude()
         if not self.policy_loaded or str(self.policy_editor.string()) == self.policy_editor_snapshot:
             self._fill_policy(state["policy"])
         if not self.settings_loaded or self._settings_values() == self.settings_form_snapshot:
@@ -1023,6 +1029,10 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
         self.controls["save_policy"].setEnabled_(live and "policy" not in self.pending)
         self.controls["save_settings"].setEnabled_(live and "settings" not in self.pending)
         self.controls["save_key"].setEnabled_(live and "key" not in self.pending)
+        coding=(self.state or {}).get('claude_code',{})
+        selected=self._selected(self.claude_models,self.claude_models_source)
+        self.controls['claude_verify'].setEnabled_(bool(live and selected and (selected['can_verify'] or selected['ready']) and 'claude-verify' not in self.pending))
+        self.controls['claude_launch'].setEnabled_(bool(live and coding.get('ready') and self.claude_client.get('compatible') and self.claude_project and 'claude-launch' not in self.pending))
         row = self._selected(self.escalation_table, self.escalation_source) if hasattr(self, "escalation_table") else None
         pending = bool(live and row and row.get("status") == "pending" and self.review_request_id == row.get("id") and "review" not in self.pending)
         self.controls["preview"].setEnabled_(pending)
@@ -1451,6 +1461,78 @@ class DesktopApplication(F.NSObject, protocols=[objc.protocolNamed("NSApplicatio
     def _show_data_folder(self):
         path = Path(self.controller.data_dir)
         C.NSWorkspace.sharedWorkspace().selectFile_inFileViewerRootedAtPath_(str(path), str(path.parent))
+
+    @objc.python_method
+    def _build_claude(self):
+        page=self._page('Claude Code','Your coding assistant. Your local models.','Connect Claude Code to Loqalyn in a few steps.',1050)
+        self._label(page,'AUTOMATIC LOCAL CODING',24,115,PAGE_WIDTH-48,22,size=11,bold=True,secondary=True)
+        self._label(page,'One model per task',24,147,PAGE_WIDTH-48,36,size=26,bold=True)
+        self._label(page,'Loqalyn selects a verified local model when a task begins. Every follow-up tool call stays on that model, even after a Loqalyn restart.',24,195,PAGE_WIDTH-48,54,size=14,secondary=True,stretch=True)
+        self.claude_summary=self._label(page,'Checking your setup…',24,261,PAGE_WIDTH-48,48,size=13,stretch=True)
+        self._button(page,'Check setup',24,321,140,self._check_claude,'claude_check')
+        self._button(page,'Choose project…',180,321,170,self._choose_claude_project,'claude_project')
+        self._button(page,'Open Claude Code',366,321,190,self._launch_claude,'claude_launch')
+        self._button(page,'Find models',572,321,140,lambda:self._navigate('Discover'),'claude_find')
+        self.controls['claude_launch'].tone='primary'
+        self.claude_project_label=self._label(page,'Choose the folder you want to work on.',24,370,PAGE_WIDTH-48,42,secondary=True,stretch=True)
+        self._label(page,'Available coding models',24,431,PAGE_WIDTH-48,28,size=17,bold=True)
+        self.claude_models,self.claude_models_source=self._table(page,[('name','Model',270,lambda r:r['name']),('status','Readiness',450,lambda r:'Ready · '+str(r['memory_gb'])+' GiB reserved' if r['ready'] else ' · '.join(r['reasons']))],475,150,self._sync_buttons)
+        self._button(page,'Check tool support',24,643,190,self._verify_claude_model,'claude_verify')
+        self.claude_check_note=self._label(page,'The check runs two short local requests. It does not execute commands or modify project files.',232,645,PAGE_WIDTH-256,49,size=11,secondary=True,stretch=True)
+        self._label(page,'Recent tasks',24,719,PAGE_WIDTH-48,28,size=17,bold=True)
+        self.claude_tasks,self.claude_tasks_source=self._table(page,[('task','Task',135,lambda r:r['task']),('model','Locked model',360,lambda r:r['model']),('requests','Requests',90,lambda r:r['requests']),('mode','Lock',90,lambda r:r['mode'])],760,130,lambda:None)
+        self._label(page,'Text coding with Ollama · Claude Code keeps its permission prompts. A separate profile leaves your existing settings intact. Model inference stays local; approved terminal commands can still access the network.',24,913,PAGE_WIDTH-48,60,size=11,secondary=True,stretch=True)
+        self._button(page,'Reset coding connection…',24,987,220,self._reset_claude,'claude_reset')
+
+    @objc.python_method
+    def _check_claude(self):
+        from .claude import client_info
+        def done(info):
+            self.claude_client=info; self._refresh(discover=True,quiet=True); self._update_claude(); self._sync_buttons(); self._status(info['message'])
+        self._work('claude-check',client_info,done)
+
+    @objc.python_method
+    def _update_claude(self):
+        coding=(self.state or {}).get('claude_code',{})
+        ready=sum(m['ready'] for m in coding.get('models',[]))
+        self.claude_summary.setStringValue_(self.claude_client['message']+'  '+(f'{ready} local coding model'+('s' if ready!=1 else '')+' ready.' if ready else 'Select a compatible model below and check its tool support.'))
+        self._reload_table(self.claude_models,self.claude_models_source,coding.get('models',[]))
+        self._reload_table(self.claude_tasks,self.claude_tasks_source,coding.get('tasks',[]))
+
+    @objc.python_method
+    def _choose_claude_project(self):
+        panel=C.NSOpenPanel.openPanel(); panel.setCanChooseDirectories_(True); panel.setCanChooseFiles_(False); panel.setAllowsMultipleSelection_(False)
+        panel.setPrompt_('Choose project')
+        if panel.runModal()==C.NSModalResponseOK:
+            self.claude_project=Path(str(panel.URL().path())).resolve()
+            self.claude_project_label.setStringValue_(str(self.claude_project)); self._check_claude(); self._sync_buttons()
+
+    @objc.python_method
+    def _verify_claude_model(self):
+        model=self._selected(self.claude_models,self.claude_models_source)
+        if not model: return
+        self.claude_check_note.setStringValue_('Checking the model’s tool call and tool-result handling locally…')
+        def done(result):
+            self.claude_check_note.setStringValue_('Tool check passed. Coding quality depends on the model and task.'); self._refresh(discover=True)
+        self._work('claude-verify',lambda:self.controller.call('/loqalyn/claude/verify','POST',{'model':model['id']}),done)
+
+    @objc.python_method
+    def _launch_claude(self):
+        from .claude import write_launcher
+        resources=os.environ.get('LOQALYN_RESOURCES')
+        if not resources: raise ValueError('Open the installed Loqalyn app to launch Terminal. From source, use loqalyn claude PROJECT.')
+        executable=Path(resources).parent/'MacOS'/'Loqalyn'
+        project=self.claude_project
+        def done(path):
+            opened=C.NSWorkspace.sharedWorkspace().openFile_withApplication_(str(path),'Terminal')
+            if not opened: self._error('Terminal could not open. Use the Loqalyn command-line launcher instead.')
+            else: self._status('Claude Code opened in Terminal. Keep Loqalyn running while you work.')
+        self._work('claude-launch',lambda:write_launcher(self.controller.data_dir,self.controller.port,project,executable),done)
+
+    @objc.python_method
+    def _reset_claude(self):
+        if self._confirm('Reset the coding connection?','This revokes the coding credential and clears saved task locks. Close existing Claude Code sessions, then open a new one from Loqalyn. Your conversations and project files remain available.','Reset'):
+            self._work('claude-reset',lambda:self.controller.call('/loqalyn/claude/reset','POST',{'confirmed':True}),lambda result:self._refresh())
 
     @objc.python_method
     def _save_text(self, name, text):

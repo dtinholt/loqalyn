@@ -74,6 +74,8 @@ def main():
     parser.add_argument('--port',type=int,default=8741); parser.add_argument('--data-dir',type=Path,default=DEFAULT_DIR)
     sub=parser.add_subparsers(dest='command',required=True)
     sub.add_parser('serve',help='Start the local API gateway')
+    coding=sub.add_parser('claude',help='Open Claude Code with automatic local models and task stability')
+    coding.add_argument('project',nargs='?',default='.')
     for name in ('status','catalog','refresh','mcp','token'): sub.add_parser(name)
     route=sub.add_parser('route'); route.add_argument('prompt'); route.add_argument('--model',default='auto'); route.add_argument('--explain',action='store_true')
     for name in ('load','unload'):
@@ -93,6 +95,17 @@ def main():
             web.run_app(create_app(args.data_dir),host='127.0.0.1',port=args.port,access_log=None,handler_cancellation=True); return
         if args.command=='token': print(api_token(args.data_dir/'token')); return
         if args.command=='mcp': mcp(args.port,args.data_dir); return
+        if args.command=='claude':
+            from .claude import client_info, find_claude, launch_arguments, launch_environment
+            import subprocess
+            project=Path(args.project).resolve(strict=True)
+            if not project.is_dir(): raise ValueError('Choose a project folder.')
+            info=client_info()
+            if not info['compatible']: raise ValueError(info['message'])
+            state=call('/loqalyn/status',port=args.port,directory=args.data_dir)
+            if not state.get('claude_code',{}).get('ready'): raise ValueError('Open Claude Code setup in Loqalyn and verify a coding model first.')
+            print('Loqalyn: local inference, automatic model selection, one model per task.\nKeep Loqalyn open. Claude Code will ask before executing commands or editing files.\n',flush=True)
+            raise SystemExit(subprocess.call(launch_arguments(find_claude()),cwd=project,env=launch_environment(args.data_dir,args.port)))
         if args.command=='key':
             if sys.platform!='darwin': raise ValueError('Provider credentials require the macOS Keychain.')
             from keyring.backends.macOS import Keyring

@@ -173,6 +173,7 @@ class Adapter:
             chat = not caps or 'completion' in caps
             if not chat and not loaded: continue
             m = Model(id='ollama/' + name, name=name, runtime='ollama', handle=name,
+                      revision=entry.get('digest') if isinstance(entry.get('digest'),str) and re.fullmatch('[a-f0-9]{64}',entry['digest']) else None,
                       size_gb=_size(entry.get('size', 0)), context_max=context,
                       capabilities=(['chat'] if chat else ['embedding']) + (['code'] if 'code' in name.lower() else [])
                       + (['vision'] if 'vision' in caps else []) + (['tools'] if 'tools' in caps else []) + (['reasoning'] if 'thinking' in caps else []),
@@ -326,6 +327,7 @@ class Adapter:
         for key in ('temperature', 'top_p', 'seed', 'stop'):
             if key in body and body[key] is not None: options[key] = [body[key]] if key == 'stop' and isinstance(body[key], str) else body[key]
         result = {'model': model.handle, 'messages': messages, 'stream': True, 'keep_alive': -1, 'options': options}
+        if 'thinking' in body: result['think'] = body['thinking']
         if body.get('tools') and body.get('tool_choice') != 'none':
             result['tools'] = copy.deepcopy(body['tools'])
             for tool in result['tools']: tool['function'].pop('strict', None)
@@ -345,6 +347,7 @@ class Adapter:
             payload = self.native_body(model, body)
         else:
             inspect_payload(body, DEFAULTS)
+            if 'thinking' in body: raise Fault('The local coding profile currently requires Ollama.', 'unsupported_feature')
             payload = {**copy.deepcopy(body), 'model': model.instance or model.handle, 'stream': True, 'stream_options': {'include_usage': True}}
             payload.pop('metadata', None); payload.pop('max_completion_tokens', None)
         path = '/api/chat' if native else '/v1/chat/completions'
@@ -412,6 +415,13 @@ class Adapter:
         if not finished: raise Fault('Runtime stream ended before completion.', 'truncated_response', 502)
 
 
+def _cache_hint(block):
+    if 'cache_control' not in block: return
+    hint=block['cache_control']
+    if not isinstance(hint,dict) or hint.get('type')!='ephemeral' or set(hint)-{'type','ttl'} or hint.get('ttl','5m') not in ('5m','1h'):
+        raise Fault('Unsupported prompt cache hint.', 'unsupported_feature')
+
+
 def _anthropic_text(value):
     if isinstance(value, str): return value
     if not isinstance(value, list): raise Fault('Anthropic text content must be text or text blocks.')
@@ -419,18 +429,29 @@ def _anthropic_text(value):
     for block in value:
         if not isinstance(block, dict) or block.get('type') != 'text' or not isinstance(block.get('text'), str):
             raise Fault('Only Anthropic text blocks are supported here.', 'unsupported_feature')
-        if set(block) - {'type', 'text'}: raise Fault('Anthropic block extensions are unsupported.', 'unsupported_feature')
+        if set(block) - {'type', 'text', 'cache_control'}: raise Fault('Anthropic block extensions are unsupported.', 'unsupported_feature')
+        _cache_hint(block)
         values.append(block['text'])
     return '\n'.join(values)
 
 
-def anthropic_request(body):
+def anthropic_request(body, *, local_coding=False):
     """Translate text/function-tool subset, rejecting fields that would lose meaning."""
     if not isinstance(body, dict): raise Fault('Request must be a JSON object.')
-    allowed = {'model', 'max_tokens', 'temperature', 'top_p', 'stream', 'metadata', 'system', 'messages', 'tools', 'stop_sequences', 'tool_choice'}
+    allowed = {'model', 'max_tokens', 'temperature', 'top_p', 'stream', 'metadata', 'system', 'messages', 'tools', 'stop_sequences', 'tool_choice', 'thinking', 'output_config'}
     if set(body) - allowed: raise Fault('Unsupported Anthropic request field.', 'unsupported_feature')
     if 'max_tokens' not in body: raise Fault('Anthropic requests require max_tokens.')
     result = {k: copy.deepcopy(body[k]) for k in ('model', 'max_tokens', 'temperature', 'top_p', 'stream', 'metadata') if k in body}
+    if 'thinking' in body and body['thinking']!={'type':'disabled'}:
+        raise Fault('Extended thinking is unavailable in this local coding profile. Launch Claude Code from Loqalyn to use its supported settings.', 'unsupported_feature')
+    if 'output_config' in body:
+        config=body['output_config']
+        if not isinstance(config,dict) or set(config)-{'effort'} or config.get('effort') not in ('low','medium','high','xhigh','max'):
+            raise Fault('Only an advisory effort hint is supported; structured Anthropic output is unavailable.', 'unsupported_feature')
+        if not local_coding:
+            raise Fault('Effort hints require the Loqalyn local coding profile.', 'unsupported_feature')
+    # Effort is advisory with thinking disabled. Cache hints do not promise caching.
+    if local_coding or 'thinking' in body: result['thinking']=False
     messages = []
     if 'system' in body: messages.append({'role': 'system', 'content': _anthropic_text(body['system'])})
     incoming = body.get('messages')
@@ -449,12 +470,14 @@ def anthropic_request(body):
             if kind == 'text':
                 texts.append(_anthropic_text([block])); seen_text = True
             elif kind == 'tool_use':
-                if msg['role'] != 'assistant' or set(block) - {'type', 'id', 'name', 'input'} or not isinstance(block.get('input'), dict):
+                if msg['role'] != 'assistant' or set(block) - {'type', 'id', 'name', 'input', 'cache_control'} or not isinstance(block.get('input'), dict):
                     raise Fault('Invalid Anthropic tool_use block.')
+                _cache_hint(block)
                 calls.append({'id': block.get('id'), 'type': 'function', 'function': {'name': block.get('name'), 'arguments': json.dumps(block['input'])}})
             elif kind == 'tool_result':
-                if msg['role'] != 'user' or seen_text or set(block) - {'type', 'tool_use_id', 'content', 'is_error'}:
+                if msg['role'] != 'user' or seen_text or set(block) - {'type', 'tool_use_id', 'content', 'is_error', 'cache_control'}:
                     raise Fault('Tool results must precede user text in Anthropic messages.')
+                _cache_hint(block)
                 if 'is_error' in block and not isinstance(block['is_error'], bool): raise Fault('is_error must be boolean.')
                 text = _anthropic_text(block.get('content', ''))
                 if block.get('is_error'): text = 'Tool error: ' + text
@@ -470,7 +493,8 @@ def anthropic_request(body):
         if not isinstance(body['tools'], list): raise Fault('tools must be a list.')
         result['tools'] = []
         for tool in body['tools']:
-            if not isinstance(tool, dict) or set(tool) - {'name', 'description', 'input_schema'}: raise Fault('Only local Anthropic function tools are supported.', 'unsupported_feature')
+            if not isinstance(tool, dict) or set(tool) - {'name', 'description', 'input_schema', 'cache_control'}: raise Fault('Only local Anthropic function tools are supported.', 'unsupported_feature')
+            _cache_hint(tool)
             result['tools'].append({'type': 'function', 'function': {'name': tool.get('name'), 'description': tool.get('description', ''), 'parameters': tool.get('input_schema')}})
     if 'stop_sequences' in body: result['stop'] = body['stop_sequences']
     if 'tool_choice' in body:

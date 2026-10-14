@@ -221,8 +221,10 @@ class Model:
     context_max: int = 0
     capabilities: list = field(default_factory=lambda:['chat'])
     tools_verified: bool = False
+    tools_verified_revision: str | None = None
     tier: str = 'on_demand'
     digest: str | None = None
+    revision: str | None = None
     quant: str = 'Unknown'
     format: str = 'gguf'
     family: str = 'Unknown'
@@ -323,7 +325,7 @@ def inspect_payload(body, policy):
         if len(json.dumps(body, allow_nan=False).encode()) > MAX_BODY: raise ValueError('Request exceeds 2 MiB.')
     except (ValueError, TypeError, RecursionError) as exc: raise Fault(str(exc))
     allowed = {'model', 'messages', 'max_tokens', 'max_completion_tokens', 'stream', 'n', 'tools', 'tool_choice',
-               'metadata', 'response_format', 'temperature', 'top_p', 'seed', 'stop', 'stream_options'}
+               'metadata', 'response_format', 'temperature', 'top_p', 'seed', 'stop', 'stream_options', 'thinking'}
     if set(body) - allowed: raise Fault("Unsupported request field: " + ', '.join(sorted(str(x) for x in set(body) - allowed)), 'unsupported_feature')
     if not isinstance(body.get('model', 'auto'), str) or not body.get('model', 'auto').strip() or len(body.get('model','auto'))>512: raise Fault("model must be a non-empty string of at most 512 characters.")
     if 'metadata' in body and (not isinstance(body['metadata'], dict) or not all(isinstance(k, str) for k in body['metadata'])):
@@ -334,6 +336,8 @@ def inspect_payload(body, policy):
     if 'max_tokens' in body and 'max_completion_tokens' in body and body['max_tokens'] != body['max_completion_tokens']:
         raise Fault("Specify one consistent completion-token limit.")
     if not isinstance(body.get('stream', False), bool): raise Fault("stream must be boolean.")
+    if 'thinking' in body and body['thinking'] is not False:
+        raise Fault('Only explicitly disabled thinking is supported.', 'unsupported_feature')
     if type(body.get('n', 1)) is not int or body.get('n', 1) != 1: raise Fault("Only n=1 is supported.")
     for key, maximum in (('temperature', 2), ('top_p', 1)):
         if key in body and not _number(body[key], maximum=maximum): raise Fault(f"{key} must be a finite number between 0 and {maximum}.")
@@ -348,7 +352,8 @@ def inspect_payload(body, policy):
             raise Fault("Only boolean stream_options.include_usage is supported.")
     if body.get('tool_choice', 'auto') not in ('auto', 'none'): raise Fault("Only automatic or disabled tool choice is supported.", 'unsupported_feature')
     tools = body.get('tools', [])
-    if not isinstance(tools, list): raise Fault("tools must be a list.")
+    if not isinstance(tools, list) or len(tools)>128: raise Fault("tools must be a list of at most 128 declarations.")
+    tool_names=set()
     for tool in tools:
         if not isinstance(tool, dict) or tool.get('type') != 'function' or not isinstance(tool.get('function'), dict):
             raise Fault("Only local function tools are supported; hosted tools are disabled.", 'unsupported_feature')
@@ -356,10 +361,14 @@ def inspect_payload(body, policy):
         if set(tool) - {'type', 'function'} or set(fn) - {'name', 'description', 'parameters', 'strict'}:
             raise Fault("Unsupported function-tool field.", 'unsupported_feature')
         if not isinstance(fn.get('name'), str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', fn['name']): raise Fault("Invalid function name.")
+        if fn['name'] in tool_names: raise Fault('Tool names must be unique.')
+        tool_names.add(fn['name'])
         if 'description' in fn and not isinstance(fn['description'], str): raise Fault("Tool description must be text.")
         if 'strict' in fn and not isinstance(fn['strict'], bool): raise Fault("Tool strict must be boolean.")
         if fn.get('strict'): raise Fault("Strict tool argument enforcement is not supported by this gateway.", 'unsupported_feature')
-        _schema(fn.get('parameters', {}))
+        from .security import tool_schema
+        try: tool_schema(fn.get('parameters', {}))
+        except Exception as exc: raise Fault('Invalid or unsupported tool input schema.') from exc
     fmt = body.get('response_format', {})
     if not isinstance(fmt, dict) or set(fmt) - {'type', 'json_schema'} or fmt.get('type', 'text') not in ('text', 'json_object', 'json_schema'):
         raise Fault("Unsupported response_format.", 'unsupported_feature')
@@ -420,7 +429,7 @@ def inspect_payload(body, policy):
     return {"text": text, "context": context, "input_estimate": input_estimate, "max_tokens": max_tokens, "tools": has_tools, "images": 0, "tags": tags}
 
 
-def route(body,models,policy):
+def route(body,models,policy,*,context_floor=0,route_hint=None,eligible_ids=None):
     start=time.perf_counter(); features=inspect_payload(body,policy); text=features['text'].lower()
     virtual=body.get('model','auto'); enabled=[x for x in policy['routes'] if x.get('enabled',True)]
     chosen_route=next(x for x in enabled if x['name']=='quick_chat'); hits=0
@@ -429,12 +438,15 @@ def route(body,models,policy):
         if n>hits: chosen_route=r; hits=n
     if virtual=='auto-code': chosen_route=next((r for r in enabled if r['name']=='code_edit'),chosen_route)
     if features['context']>32768: chosen_route=next((r for r in enabled if r['name']=='long_document'),chosen_route)
+    if route_hint: chosen_route=next((r for r in enabled if r['name']==route_hint),chosen_route)
+    features['context']=max(features['context'],context_floor)
     exclusions=[]; candidates=[]; all_models=list(models.values()); explicit=virtual not in ('auto','auto-fast','auto-code')
     budget=policy['budget_gb']-policy['headroom_gb']
     protected={m.id:m.memory_gb for m in all_models if m.loaded and (m.active or m.tier=='resident' or not m.managed)}
     protected_total=sum(protected.values())
     for m in all_models:
         reasons=[]
+        if eligible_ids is not None and m.id not in eligible_ids: reasons.append('coding_not_verified')
         if not m.available: reasons.append('runtime_offline')
         if not m.installation_verified: reasons.append('installation_unverified')
         if m.state_uncertain: reasons.append('runtime_state_unknown')

@@ -1,4 +1,4 @@
-For the current **0.3.0-alpha.2** results, see [the second review](SECOND-REVIEW.md). The evidence below is retained for alpha 1.
+For current **0.4.0-alpha.1** results, see [Claude Code release validation](CLAUDE-VALIDATION.md). The [second review](SECOND-REVIEW.md) covers 0.3.0-alpha.2. The evidence below is retained for alpha 1.
 
 > Historical document: this project was renamed from Switchyard to Loqalyn in Alpha 3. Original names, commands, measurements and evidence below describe the version reviewed at that time.
 

@@ -1,0 +1,19 @@
+{
+  "version": "0.4.0a1",
+  "all_installed_modules_match": true,
+  "modules": {
+    "loqalyn/__init__.py": "33b89cd3815141004471587d1402ce502b014c33820af2da9c28742d2fdfcda0",
+    "loqalyn/adapters.py": "d457f4d33c3f378a0036836380d9ebf91303a0e20669312ea6a6285938cff064",
+    "loqalyn/claude.py": "413cab4a16127b261516181c01b6ac59c176ac7411a635280bc944ebb8c17cbb",
+    "loqalyn/cli.py": "5ed2ba687822dfe35d2425a4b1ac071a832838b86e338ebb374bf48ce97a9478",
+    "loqalyn/core.py": "02f6ff15b5bcd93a5895ee993d6ec8b74142fa575124ca349f704ca6625d1b44",
+    "loqalyn/desktop.py": "eac85b43f50d554ccd2a0ab86d4a4abce4436a8e5832bf669b51fdc68ed6b56a",
+    "loqalyn/desktop_presenter.py": "b28fd44976a840bc77b3a215629e99dfda5abbfce0b7a1b252e557b09936b25a",
+    "loqalyn/desktop_style.py": "21a7687c799039ae894c9f8b13e43a5626553cc8817b97610dcb003b164909f4",
+    "loqalyn/desktop_ui.py": "f9f758987cc73dc71ec54e0e654610fbc7dfbbf3ea62188e3d0e323b7b942422",
+    "loqalyn/hub.py": "c671a7aaf4caad07527828c7187057f7c7ffcfab508396eedc6c2947398618fd",
+    "loqalyn/identity.py": "1ea80544b79c662817499eb911bae21b6e286e03d3adabd7b401a3a7b223426f",
+    "loqalyn/security.py": "f4cd8dacfa774d35513d57d55f743b11887b249ba51df80fe0b7dd763b095fd6",
+    "loqalyn/server.py": "94b5f11e50515a355641b2f04fa20510be7e89a729315170605194c3b80ffce6"
+  }
+}

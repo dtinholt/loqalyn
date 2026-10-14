@@ -88,7 +88,7 @@ def main():
     shutil.copy2(ROOT/'macos/dependencies.lock.json',resources/'build-manifest.json')
     info={'CFBundleName':'Loqalyn','CFBundleDisplayName':'Loqalyn','CFBundleIdentifier':'dev.loqalyn.desktop',
           'CFBundleExecutable':'Loqalyn','CFBundleIconFile':'Loqalyn.icns','CFBundlePackageType':'APPL',
-          'CFBundleShortVersionString':'0.3.0','CFBundleVersion':'5','LSMinimumSystemVersion':'13.0',
+          'CFBundleShortVersionString':'0.4.0','CFBundleVersion':'6','LSMinimumSystemVersion':'13.0',
           'NSHighResolutionCapable':True,'NSPrincipalClass':'NSApplication','LSApplicationCategoryType':'public.app-category.developer-tools'}
     (contents/'Info.plist').write_bytes(plistlib.dumps(info)); (contents/'PkgInfo').write_text('APPL????')
     subprocess.run(['xcrun','clang','-arch','arm64','-mmacosx-version-min=13.0','-O2',str(ROOT/'macos/launcher.c'),'-o',str(binary/'Loqalyn')],check=True)

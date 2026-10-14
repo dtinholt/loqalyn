@@ -1,4 +1,4 @@
-# API and compatibility: 0.3 alpha
+# API and compatibility: 0.4 alpha
 
 Send `Authorization: Bearer <local-token>` (or `x-api-key`) on every request except `/health`. Never place tokens in URLs. Local base URL: `http://127.0.0.1:8741`.
 
@@ -7,6 +7,10 @@ Send `Authorization: Bearer <local-token>` (or `x-api-key`) on every request exc
 | `GET /v1/models` | Virtual routes and discovered runtime-qualified model IDs |
 | `POST /v1/chat/completions` | OpenAI-style text/function-tool chat; SSE or collected JSON |
 | `POST /v1/messages` | Anthropic-style text/tool subset, including streamed content blocks |
+| `POST /v1/messages/count_tokens` | Conservative byte-based input estimate; no inference or task pin |
+| `HEAD /api/hello` | Authenticated Claude Code connection probe |
+| `POST /loqalyn/claude/verify` | Admin-only synthetic tool round trip for `{ "model": "ollama/name" }` |
+| `POST /loqalyn/claude/reset` | Admin-only `{ "confirmed": true }`; idle-only credential rotation and task-lock reset |
 | `POST /loqalyn/route` | Explain selection without loading, inference, production logging, or approval queuing |
 | `GET /loqalyn/status` | Runtime/model state, estimates, policy, bounded recent decisions and operational counters |
 | `GET /loqalyn/decisions/{id}` | Final outcome for a request, including late streaming errors |
@@ -23,7 +27,9 @@ Send `Authorization: Bearer <local-token>` (or `x-api-key`) on every request exc
 | `POST /loqalyn/hub/inspect` | `{ "repository": "publisher/model" }`; five-minute preview, license, revision and up to 64 eligible files |
 | `POST /loqalyn/hub/install` | `{ "preview_id": "hf_…", "filename": "model.gguf", "confirmed": true }`; verified selection, Ollama job returned |
 
-This is a documented subset, not drop-in parity with every OpenAI/Anthropic SDK or coding agent. Unsupported request fields fail explicitly. No Responses API, images, audio, embeddings, hosted tools, parallel choices (`n > 1`), forced function selection, tool execution, or strict tool-argument enforcement. JSON output is checked after generation. Schemas accept a bounded subset: basic types, properties, items, required, scalar enum, ranges, and lengths. References, patterns, combinators, and uniqueness constraints are rejected. With streaming, a post-check failure may occur after partial output; clients must handle error events and inspect the final decision.
+This is a documented subset, not drop-in parity with every OpenAI/Anthropic SDK or coding agent. Unsupported request fields fail explicitly. No Responses API, images, audio, embeddings, hosted tools, parallel choices (`n > 1`), forced function selection, tool execution, or strict tool-argument enforcement. JSON output is checked after generation. Output schemas accept a bounded subset: basic types, properties, items, required, scalar enum, ranges, and lengths. References, patterns, combinators, and uniqueness constraints are rejected for output validation. Tool declarations instead support bounded JSON Schema data including combinators and local references; they are never evaluated against arguments by Loqalyn, and external references are forbidden. With streaming, a post-check failure may occur after partial output; clients must handle error events and inspect the final decision.
+
+The [Claude Code profile](CLAUDE-CODE.md) has an inference-only credential and persistent task locks. For that credential, `/v1/models` returns the Anthropic discovery envelope with `auto-code` and `auto-fast`. Messages require a session identifier, use Ollama only, and never queue cloud escalation. Text cache hints are accepted as advisory. The profile disables thinking and accepts an advisory effort hint; it does not offer cloud-style thinking budgets or caching. Missing prompt hints pin a session; compaction without a prompt hint reuses that agent's latest task model. Unsupported feature failures remain explicit.
 
 Function tools require `tools_verified: true` for the selected model. Every prior assistant tool call needs a matching tool result before another generation. Call IDs must be unique and arguments must be finite JSON objects. Clients should execute only tools they independently authorize; the gateway never executes them.
 
@@ -41,6 +47,7 @@ The documented control prefix is now `/loqalyn`. Every former `/switchyard/*` co
 - Queue, load, and request deadlines are configurable. Client disconnects close upstream work and release reservations. Failed/interrupted loads retain uncertain reservations until explicit recovery.
 - Up to 32 review records / 16 MiB original pending payloads, expiring after 30 minutes; up to 2 active downloads and 32 job records. Completed provider responses are separately bounded to 2 MiB each.
 - Decision/event history is pruned by age during operation (within 60 seconds) and immediately when retention changes. Zero days clears the journal and disables new records; request-detail lookups then return 404. History is also bounded to about 10,000 rows, and 32 MiB of retained serialized data per table. Periodic trimming allows up to 99 additional records; database allocation is not a strict 32 MiB file-size cap. Recent-decision responses include at most 2 MiB of serialized records.
+- Coding task locks are separate operational state: at most 16,384 metadata records, retained until an explicit coding-connection reset. Zero-day decision retention does not erase these locks. New tasks are refused at capacity; existing locks are never silently evicted.
 
 400/415 indicate malformed/unsupported input; 401 missing/incorrect auth; 403 locality/privacy/approval restrictions; 409 conflicting lifecycle state; 422 no eligible model; 502 invalid upstream behavior or failed output check; 503 unavailable capacity/runtime/configuration. A late stream failure is an error event without a successful completion terminator. No silent retry or splice to another model occurs.
 

@@ -10,12 +10,16 @@ from .core import Config, Journal, Ledger, Fault, Model, route, inspect_payload,
 from .adapters import Adapter, anthropic_request, anthropic_response, complete
 from .security import api_token, loads, MAX_BODY, MAX_RESPONSE, read_response, privacy_tags
 from .identity import setting, keychain_password
+from .claude import TaskPins, task_identity, coding_status, CONTEXT
 
 class Service:
     def __init__(self,path):
         self.config=Config(path); self.models={}; self.adapters={}; self.health={}; self.last_refresh=0
         self.journal=Journal(self.config.path/'decisions.sqlite3'); self.journal.prune(self.config.data['log_retention_days'])
-        try: self.token=api_token(self.config.path/'token')
+        try:
+            self.token=api_token(self.config.path/'token')
+            self.claude_token=api_token(self.config.path/'claude-token')
+            self.task_pins=TaskPins(self.journal.db)
         except BaseException:
             self.journal.db.close(); raise
         self.ledger=Ledger(self.models,self.adapters,self.config,self.journal)
@@ -107,6 +111,7 @@ class Service:
             async with self.ledger.lock:
                 self.config.reload()
                 overrides=self.config.catalog_data['models']
+                verified=self.task_pins.verified_models()
                 for (name,adapter),result in zip(adapters,results):
                     # A load, unload or lease changed while the network snapshot
                     # was in flight. Discard it; never overwrite newer reservations.
@@ -132,17 +137,19 @@ class Service:
                         for k,v in overrides.get(fresh.id,{}).items():
                             if k in ('context_max','size_gb','kv_gb_per_1k','tools_verified','tier','digest','task_scores','name','speed_tps','installation_verified'):
                                 setattr(fresh,k,v)
+                        fresh.tools_verified_revision=verified.get(fresh.id)
+                        if fresh.tools_verified_revision and fresh.tools_verified_revision!=fresh.revision: fresh.tools_verified=False
                         if fresh.loaded: fresh.memory_gb=max(fresh.memory_gb,fresh.footprint(fresh.loaded_context or 8192))
                         self.models[fresh.id]=fresh
                     for id,m in list(self.models.items()):
                         if m.runtime==name and id not in seen and not m.active and not m.state_uncertain: del self.models[id]
                 self.last_refresh=time.time()
-    def decision(self,body,persist=False):
+    def decision(self,body,persist=False,task=None):
         self.config.ensure_valid()
         configured={name:adapter.url for name,adapter in self.adapters.items()}
         desired={name:url.rstrip('/') for name,url in self.config.data['runtimes'].items()}
         if configured!=desired: raise Fault('Runtime settings changed. Refresh discovery before routing.','runtime_config_changed',503)
-        d=route(body,self.models,self.config.data)
+        d=self.task_pins.decide(task,body,self.models,self.config.data,self.adapters) if task else route(body,self.models,self.config.data)
         if persist: self.journal.decision(d)
         return d
     def queue(self,d,body):
@@ -170,6 +177,7 @@ class Service:
         return {'version':__version__,'mode':'local','runtimes':self.health,'models':[m.public() for m in self.models.values()],
             'budget_gb':self.config.data['budget_gb'],'headroom_gb':self.config.data['headroom_gb'],'used_gb':round(sum(m.memory_gb for m in self.models.values() if m.loaded),2),
             'active':sum(m.active for m in self.models.values()),'decisions':decisions,'policy':self.config.data,'config_error':self.config.error,
+            'claude_code':{**coding_status(self.models,self.config.data,self.health.get('ollama',{}).get('cloud_disabled')),'tasks':self.task_pins.recent()},
             'warm_rate':round(sum(x.get('warm',False) for x in served)/len(served)*100) if served else None,
             'escalations':[{k:v for k,v in p.items() if k not in ('payload','result')} for p in self.pending.values()],
             'uptime_seconds':int(time.time()-self.started), 'metrics':dict(self.metrics),
@@ -196,8 +204,14 @@ async def guard(request,handler):
         if request.path!='/health':
             auth=request.headers.get('Authorization','')
             supplied=auth[7:] if auth.startswith('Bearer ') else request.headers.get('x-api-key','')
-            if not supplied or not hmac.compare_digest(supplied.encode(),s.token.encode()):
+            admin=hmac.compare_digest(supplied.encode(),s.token.encode())
+            coding=hmac.compare_digest(supplied.encode(),s.claude_token.encode())
+            if not supplied or not (admin or coding):
                 raise Fault('Use the local API token from Loqalyn Settings.','unauthorized',401)
+            request['client_scope']='claude' if coding and not admin else 'admin'
+            if request['client_scope']=='claude' and (request.method,request.path) not in (
+                    ('POST','/v1/messages'),('POST','/v1/messages/count_tokens'),('GET','/v1/models'),('HEAD','/api/hello')):
+                raise Fault('This credential can only use the local Claude Code connection.', 'insufficient_scope',403)
             category='inference' if request.path in ('/v1/chat/completions','/v1/messages') else 'control'
             if s.inflight[category]>=(32 if category=='inference' else 16):
                 category=None; s.metrics['overloaded']+=1
@@ -208,7 +222,9 @@ async def guard(request,handler):
     except Fault as e:
         headers={'Retry-After':'3'} if e.status==503 else {}
         error_type='switchyard_error' if request.path.startswith('/switchyard/') else 'loqalyn_error'
-        response=web.json_response({'error':{'message':str(e),'code':e.code,'type':error_type,'details':e.details}},status=e.status,headers=headers)
+        if request.path.startswith('/v1/messages'):
+            error_type={400:'invalid_request_error',401:'authentication_error',403:'permission_error',409:'invalid_request_error',422:'invalid_request_error',503:'overloaded_error'}.get(e.status,'api_error')
+        response=web.json_response({'type':'error','error':{'message':str(e),'code':e.code,'type':error_type,'details':e.details}},status=e.status,headers=headers)
     except web.HTTPException as e:
         response=web.json_response({'error':{'message':e.reason,'code':'http_error'}},status=e.status)
     except (ValueError,TypeError,KeyError,AttributeError,RecursionError,yaml.YAMLError):
@@ -245,7 +261,88 @@ async def refresh(request): await request.app['service'].refresh(); return await
 async def catalog(request): return web.json_response({'models':[m.public() for m in request.app['service'].models.values()]})
 async def models(request):
     s=request.app['service']; names=['auto','auto-fast','auto-code']+list(s.models)
+    if request.get('client_scope')=='claude':
+        names=['auto-code','auto-fast']
+        return web.json_response({'data':[{'id':x,'type':'model','display_name':'Loqalyn · '+('local coding' if x=='auto-code' else 'fast local tasks'),'created_at':'2026-10-14T00:00:00Z'} for x in names],
+                                  'has_more':False,'first_id':names[0],'last_id':names[-1]})
     return web.json_response({'object':'list','data':[{'id':x,'object':'model','created':0,'owned_by':'loqalyn'} for x in names]})
+
+async def count_tokens(request):
+    incoming=await body_json(request)
+    # No model execution or task lock is necessary for a conservative estimate.
+    body=anthropic_request({**incoming,'max_tokens':1},local_coding=True)
+    value=inspect_payload(body,request.app['service'].config.data)['input_estimate']
+    return web.json_response({'input_tokens':value},headers={'X-Loqalyn-Token-Estimate':'conservative-bytes'})
+
+async def claude_verify(request):
+    s=request.app['service']; body=await body_json(request); id=body.get('model')
+    require_local_runtime(s); await s.refresh()
+    candidate=next((m for m in coding_status(s.models,s.config.data,s.health.get('ollama',{}).get('cloud_disabled'))['models'] if m['id']==id),None)
+    if not candidate or not (candidate['can_verify'] or candidate['ready']):
+        raise Fault('Choose an available Ollama model with 64K context and enough free memory.', 'model_not_ready',422)
+    await asyncio.wait_for(s.generation_slots.acquire(),s.config.data['queue_timeout'])
+    acquired=False
+    try:
+        async with asyncio.timeout(s.config.data['request_timeout']):
+            m=await s.ledger.acquire(id,CONTEXT); acquired=True
+            revision=m.revision
+            async def generate(payload):
+                chunks=[]; size=0
+                async for chunk in s.adapters[m.runtime].chunks(m,payload):
+                    size+=len(json.dumps(chunk).encode())
+                    if size>MAX_RESPONSE or len(chunks)>=8192: raise Fault('Tool check response exceeded its limit.','output_limit',502)
+                    chunks.append(chunk)
+                return complete(chunks,m.id)
+            nonce=secrets.token_hex(8)
+            payload={'model':id,'thinking':False,'max_tokens':256,'temperature':0,
+                'messages':[{'role':'user','content':'Call loqalyn_probe exactly once with value 314159. Do not answer without calling it.'}],
+                'tools':[{'type':'function','function':{'name':'loqalyn_probe','description':'Return a verification word.',
+                    'parameters':{'type':'object','properties':{'value':{'type':'integer'}},'required':['value'],'additionalProperties':False}}}]}
+            first=await generate(payload); message=first['choices'][0]['message']; calls=message.get('tool_calls',[])
+            if len(calls)!=1 or calls[0]['function']['name']!='loqalyn_probe' or loads(calls[0]['function']['arguments'])!={'value':314159}:
+                raise Fault('This model did not produce the expected tool call. Try another model.','tool_check_failed',422)
+            payload['messages'] += [message,{'role':'tool','tool_call_id':calls[0]['id'],'content':'Verification word: '+nonce},
+                {'role':'user','content':'Reply with only the verification word from the tool result. Do not call any tool.'}]
+            payload['tool_choice']='none'
+            second=await generate(payload); final=second['choices'][0]['message']
+            if final.get('tool_calls') or nonce not in (final.get('content') or ''):
+                raise Fault('This model did not correctly read the tool result. Try another model.','tool_check_failed',422)
+            # A check is not a coding-quality benchmark; save only tool support.
+            await s.refresh()
+            if id not in s.models or s.models[id].revision!=revision: raise Fault('The model changed during verification. Retry the check.','model_changed',409)
+            data=copy.deepcopy(s.config.catalog_data); data['models'].setdefault(id,{})['tools_verified']=True
+            # Keep catalogue fields backwards-compatible with the previous alpha.
+            s.task_pins.verify_model(id,revision)
+            atomic_yaml(s.config.overrides,data); await s.refresh()
+            s.journal.event('claude_tool_check_passed',{'model':id,'revision':revision})
+            return web.json_response({'ok':True,'model':id,'checks':['function_call','tool_result'],'note':'Tool compatibility checked; coding quality varies by model.'})
+    except Fault as exc:
+        if exc.code=='tool_check_failed':
+            s.config.ensure_valid()
+            data=copy.deepcopy(s.config.catalog_data); record=data['models'].setdefault(id,{})
+            record['tools_verified']=False; s.task_pins.verify_model(id,None)
+            atomic_yaml(s.config.overrides,data); await s.refresh()
+            s.journal.event('claude_tool_check_failed',{'model':id})
+        raise
+    finally:
+        try:
+            if acquired: await asyncio.shield(s.ledger.release(id))
+        finally: s.generation_slots.release()
+
+async def claude_reset(request):
+    s=request.app['service']; body=await body_json(request)
+    if body!={'confirmed':True}: raise Fault('Confirm the connection reset.')
+    if s.inflight['inference'] or any(m.active for m in s.models.values()): raise Fault('Wait for active requests before resetting the connection.','model_busy',409)
+    import tempfile
+    fd,path=tempfile.mkstemp(prefix='claude-token.',dir=s.config.path)
+    try:
+        token=secrets.token_urlsafe(32)
+        with os.fdopen(fd,'w') as handle: handle.write(token); handle.flush(); os.fsync(handle.fileno())
+        os.replace(path,s.config.path/'claude-token'); s.claude_token=token
+        s.journal.db.execute('DELETE FROM claude_tasks')
+    finally:
+        if os.path.exists(path): os.unlink(path)
+    return web.json_response({'ok':True,'message':'Old coding connections are revoked. Open a new session from Loqalyn.'})
 async def dry_run(request): return web.json_response(request.app['service'].decision(await body_json(request)))
 async def decisions(request): return web.json_response({'decisions':request.app['service'].journal.recent()})
 async def decision_by_id(request):
@@ -314,13 +411,15 @@ async def inference(request):
 async def _inference(request):
     s=request.app['service']; incoming=await body_json(request); anth=request.path=='/v1/messages'
     require_local_runtime(s)
-    body=anthropic_request(incoming) if anth else incoming
+    task=task_identity(request.headers,required=request.get('client_scope')=='claude') if anth else None
+    body=anthropic_request(incoming,local_coding=bool(task)) if anth else incoming
     def remaining():
         value=request['deadline']-asyncio.get_running_loop().time()
         if value<=0: raise Fault('Request deadline exceeded.','request_timeout',503)
         return value
-    if time.time()-s.last_refresh>15: await asyncio.wait_for(s.refresh(),remaining())
-    d=s.decision(body,True); s.queue(d,body)
+    if task or time.time()-s.last_refresh>15: await asyncio.wait_for(s.refresh(),remaining())
+    d=s.decision(body,True,task=task)
+    if not task: s.queue(d,body)
     if not d['model']: raise Fault('No eligible local model. Review the decision or reduce the request context.',d['escalation'],422,d)
     body={k:v for k,v in body.items() if k not in ('metadata','max_completion_tokens')}; body['max_tokens']=d['max_tokens']
     acquired=False; response=None; chunks=[]; start=time.perf_counter(); generator=None; response_bytes=0
@@ -333,12 +432,23 @@ async def _inference(request):
         require_local_runtime(s)
         upstream=s.adapters[m.runtime].chunks(m,body,timeout=remaining())
         async def bounded_upstream():
+            pending=None
             try:
                 while True:
-                    chunk=await asyncio.wait_for(anext(upstream,None),remaining())
+                    pending=asyncio.create_task(anext(upstream,None))
+                    while True:
+                        done,_=await asyncio.wait({pending},timeout=min(10,remaining()))
+                        if done: break
+                        if response and response.prepared and anth:
+                            await asyncio.wait_for(response.write(b'event: ping\ndata: {"type":"ping"}\n\n'),remaining())
+                    chunk=pending.result(); pending=None
                     if chunk is None: return
                     yield chunk
-            finally: await upstream.aclose()
+            finally:
+                if pending:
+                    pending.cancel()
+                    with contextlib.suppress(asyncio.CancelledError): await pending
+                await upstream.aclose()
         generator=bounded_upstream()
         # Fetch before sending headers so connection/load failures produce a proper JSON error.
         first=await anext(generator,None)
@@ -368,7 +478,7 @@ async def _inference(request):
         if anth:
             message={'id':first.get('id',d['id']),'type':'message','role':'assistant','model':m.id,'content':[],'stop_reason':None,'stop_sequence':None,'usage':{'input_tokens':0,'output_tokens':0}}
             await emit('message_start',{'type':'message_start','message':message})
-            block_index=0; text_open=False; tool_indices={}
+            block_index=0; text_open=False
         async for c in all_chunks():
             chunks.append(c)
             if not anth: await emit(None,c); continue
@@ -378,20 +488,18 @@ async def _inference(request):
                     if not text_open:
                         await emit('content_block_start',{'type':'content_block_start','index':block_index,'content_block':{'type':'text','text':''}}); text_open=True
                     await emit('content_block_delta',{'type':'content_block_delta','index':block_index,'delta':{'type':'text_delta','text':delta['content']}})
-                for t in delta.get('tool_calls',[]):
-                    if text_open:
-                        await emit('content_block_stop',{'type':'content_block_stop','index':block_index}); block_index+=1; text_open=False
-                    tid=t.get('index',0)
-                    if tid not in tool_indices:
-                        tool_indices[tid]=block_index; block_index+=1
-                        await emit('content_block_start',{'type':'content_block_start','index':tool_indices[tid],'content_block':{'type':'tool_use','id':t.get('id','call_'+str(tid)),'name':t.get('function',{}).get('name',''),'input':{}}})
-                    if t.get('function',{}).get('arguments'):
-                        await emit('content_block_delta',{'type':'content_block_delta','index':tool_indices[tid],'delta':{'type':'input_json_delta','partial_json':t['function']['arguments']}})
+                # Buffer function arguments until the complete call is validated.
+                # A client must never receive a completed, invalid tool block.
         result=complete(chunks,m.id); post_check(s,d,body,result)
         if anth:
-            if text_open: await emit('content_block_stop',{'type':'content_block_stop','index':block_index})
-            for i in tool_indices.values(): await emit('content_block_stop',{'type':'content_block_stop','index':i})
             finish=anthropic_response(result)
+            if text_open:
+                await emit('content_block_stop',{'type':'content_block_stop','index':block_index}); block_index+=1
+            for block in finish['content']:
+                if block['type']!='tool_use': continue
+                await emit('content_block_start',{'type':'content_block_start','index':block_index,'content_block':{**block,'input':{}}})
+                await emit('content_block_delta',{'type':'content_block_delta','index':block_index,'delta':{'type':'input_json_delta','partial_json':json.dumps(block['input'])}})
+                await emit('content_block_stop',{'type':'content_block_stop','index':block_index}); block_index+=1
             await emit('message_delta',{'type':'message_delta','delta':{'stop_reason':finish['stop_reason'],'stop_sequence':None},'usage':finish['usage']})
             await emit('message_stop',{'type':'message_stop'})
         else: await asyncio.wait_for(response.write(b'data: [DONE]\n\n'),remaining())
@@ -419,6 +527,14 @@ async def _inference(request):
             if acquired: await asyncio.shield(s.ledger.release(d['model']))
 
 def post_check(s,d,body,result):
+    tools={t['function']['name'] for t in body.get('tools',[])}
+    calls=result['choices'][0]['message'].get('tool_calls',[])
+    for call in calls:
+        if body.get('tool_choice')=='none' or call['function']['name'] not in tools:
+            raise Fault('Model returned an unrequested tool. No tool result was completed.', 'invalid_tool_call',502)
+        try: arguments=loads(call['function']['arguments'])
+        except ValueError: raise Fault('Model returned invalid tool arguments.','invalid_tool_arguments',502)
+        if not isinstance(arguments,dict): raise Fault('Tool arguments must be an object.','invalid_tool_arguments',502)
     fmt=body.get('response_format',{})
     if fmt.get('type') in ('json_object','json_schema'):
         try:
@@ -577,6 +693,11 @@ async def create_app(path):
     async def health(request): return web.json_response({'ok':True,'version':__version__})
     app.router.add_get('/',index); app.router.add_get('/health',health)
     app.router.add_get('/v1/models',models); app.router.add_post('/v1/chat/completions',inference); app.router.add_post('/v1/messages',inference)
+    app.router.add_post('/v1/messages/count_tokens',count_tokens)
+    async def hello(request): return web.Response()
+    app.router.add_head('/api/hello',hello)
+    app.router.add_post('/loqalyn/claude/verify',claude_verify)
+    app.router.add_post('/loqalyn/claude/reset',claude_reset)
     for prefix in ('/loqalyn', '/switchyard'):
         app.router.add_get(prefix+'/status',status); app.router.add_post(prefix+'/refresh',refresh); app.router.add_get(prefix+'/catalog',catalog)
         app.router.add_post(prefix+'/route',dry_run); app.router.add_get(prefix+'/decisions',decisions); app.router.add_get(prefix+'/decisions/{id}',decision_by_id)

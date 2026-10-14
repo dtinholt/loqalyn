@@ -1,0 +1,109 @@
+{
+  "tool": "Bandit",
+  "scope": "loqalyn application package",
+  "errors": [],
+  "counts": {
+    "LOW": 10,
+    "MEDIUM": 4
+  },
+  "findings": [
+    {
+      "filename": "loqalyn/claude.py",
+      "line_number": 11,
+      "test_id": "B404",
+      "issue_severity": "LOW",
+      "issue_text": "Consider possible security implications associated with the subprocess module."
+    },
+    {
+      "filename": "loqalyn/claude.py",
+      "line_number": 154,
+      "test_id": "B603",
+      "issue_severity": "LOW",
+      "issue_text": "subprocess call - check for execution of untrusted input."
+    },
+    {
+      "filename": "loqalyn/claude.py",
+      "line_number": 169,
+      "test_id": "B106",
+      "issue_severity": "LOW",
+      "issue_text": "Possible hardcoded password: ''"
+    },
+    {
+      "filename": "loqalyn/cli.py",
+      "line_number": 100,
+      "test_id": "B404",
+      "issue_severity": "LOW",
+      "issue_text": "Consider possible security implications associated with the subprocess module."
+    },
+    {
+      "filename": "loqalyn/cli.py",
+      "line_number": 108,
+      "test_id": "B603",
+      "issue_severity": "LOW",
+      "issue_text": "subprocess call - check for execution of untrusted input."
+    },
+    {
+      "filename": "loqalyn/core.py",
+      "line_number": 2,
+      "test_id": "B404",
+      "issue_severity": "LOW",
+      "issue_text": "Consider possible security implications associated with the subprocess module."
+    },
+    {
+      "filename": "loqalyn/core.py",
+      "line_number": 166,
+      "test_id": "B607",
+      "issue_severity": "LOW",
+      "issue_text": "Starting a process with a partial executable path"
+    },
+    {
+      "filename": "loqalyn/core.py",
+      "line_number": 166,
+      "test_id": "B603",
+      "issue_severity": "LOW",
+      "issue_text": "subprocess call - check for execution of untrusted input."
+    },
+    {
+      "filename": "loqalyn/core.py",
+      "line_number": 288,
+      "test_id": "B608",
+      "issue_severity": "MEDIUM",
+      "issue_text": "Possible SQL injection vector through string-based query construction."
+    },
+    {
+      "filename": "loqalyn/core.py",
+      "line_number": 289,
+      "test_id": "B608",
+      "issue_severity": "MEDIUM",
+      "issue_text": "Possible SQL injection vector through string-based query construction."
+    },
+    {
+      "filename": "loqalyn/core.py",
+      "line_number": 303,
+      "test_id": "B608",
+      "issue_severity": "MEDIUM",
+      "issue_text": "Possible SQL injection vector through string-based query construction."
+    },
+    {
+      "filename": "loqalyn/core.py",
+      "line_number": 304,
+      "test_id": "B608",
+      "issue_severity": "MEDIUM",
+      "issue_text": "Possible SQL injection vector through string-based query construction."
+    },
+    {
+      "filename": "loqalyn/desktop.py",
+      "line_number": 43,
+      "test_id": "B105",
+      "issue_severity": "LOW",
+      "issue_text": "Possible hardcoded password: ''"
+    },
+    {
+      "filename": "loqalyn/desktop.py",
+      "line_number": 138,
+      "test_id": "B110",
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected."
+    }
+  ]
+}

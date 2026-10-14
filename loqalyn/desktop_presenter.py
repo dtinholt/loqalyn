@@ -16,7 +16,7 @@ import yaml
 from .core import validate_catalog_patch, validate_policy
 from .security import loads
 
-PAGES = ("Overview", "Models", "Discover", "Playground", "Policies", "Activity", "Escalations", "Settings")
+PAGES = ("Overview", "Models", "Discover", "Playground", "Claude Code", "Policies", "Activity", "Escalations", "Settings")
 ROUTE_NAMES = {"quick_chat": "Everyday tasks", "code_edit": "Code & development", "long_document": "Long documents", "hard_reasoning": "Deep reasoning"}
 RUNTIME_NAMES = {"ollama": "Ollama", "lmstudio": "LM Studio"}
 
