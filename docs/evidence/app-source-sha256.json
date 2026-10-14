@@ -1,0 +1,12 @@
+{
+  "switchyard/__init__.py": "2ecbd9c3c20573cbd42e30aec10b691a01f9ad703174d40a054d715afb758055",
+  "switchyard/adapters.py": "b0f7f011149208707d167cba9db34ae4d973b07ec717501eac7c7615578e805f",
+  "switchyard/cli.py": "841a601deaac9d03ec4f18cde50cbd556726c484816e45ddec51663f9b07d9c5",
+  "switchyard/core.py": "7c8f06836a7eb4776220e212ce805b74b15f6b6e5e8563fbadcb8deeaacdfbe1",
+  "switchyard/desktop.py": "6b349e5ddf6ad30b6b6db344e1c3ee05aaa4913b297793c8b3a650aef6347515",
+  "switchyard/desktop_presenter.py": "2a38e356dfe9aa0d838d9bbce152b093d373ebdf6741e07d9f09dcb11edd7f3a",
+  "switchyard/desktop_style.py": "15b0d57c889e759c13d9ead541db10fc1dc8dbac8889a66c436586175190cf60",
+  "switchyard/desktop_ui.py": "5963841fac320ab29bc4b7f37426b3a14ce94333a54ed3e203bab7bfbd5474c2",
+  "switchyard/security.py": "fb2e2d57b713c19512167e9533ed4154ae97519ef25eadf958f064ffef5f64cb",
+  "switchyard/server.py": "817e14e694b3b2f5079d0636ccc7c5c4821f0cb2ac9efa0178680c286d51d526"
+}

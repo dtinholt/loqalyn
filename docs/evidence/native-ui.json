@@ -1,0 +1,30 @@
+{
+  "kind": "native macOS interaction and visual review",
+  "date": "2026-10-13",
+  "fixture_runtime": true,
+  "isolated_profile": true,
+  "release_app_code_unchanged": true,
+  "checks": {
+    "all_seven_modern_pages_inspected": true,
+    "overview_metrics": true,
+    "model_selection_and_readable_details": true,
+    "externally_loaded_model_protected": true,
+    "playground_generation_completed": true,
+    "completed_generation_in_activity": true,
+    "empty_approval_controls_disabled": true
+  },
+  "earlier_interaction_checks": [
+    "model discovery/load/unload",
+    "invalid settings rejected",
+    "valid settings applied",
+    "clean forms refreshed while dirty policy draft preserved",
+    "stale policy save rejected",
+    "generation cancellation reflected in journal",
+    "approval preview and denial cleared retained UI payloads"
+  ],
+  "limits": [
+    "UI copy used a test-only profile/port/bootstrap and bundle ID",
+    "No real provider send or credential entry",
+    "Assistive technology acceptance not performed"
+  ]
+}

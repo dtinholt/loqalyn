@@ -1,0 +1,168 @@
+{
+  "title": "Router research for the Switchyard alpha",
+  "researched_on": "2026-10-13",
+  "scope": "Primary project repositories and official documentation; read-only inspection of recovered Switchyard code. This is a design recommendation report, not evidence that these changes have been implemented or tested.",
+  "source_snapshot": "switchyard/ (initial recovered source)",
+  "identity_check": {
+    "hydrafusion": "GitHub/Microsoft Project HydraFusion is a Copilot research preview for choosing single-model, cascade, or critique workflows. GitHub's official announcement is dated September 4, 2026. No public implementation repository or reusable implementation license was verified during this search; do not label HydraFusion open source.",
+    "official_source": "https://github.blog/ai-and-ml/project-hydrafusion-frontier-quality-via-multi-model-orchestration/",
+    "name_collision": "AICPS/hydrafusion is an unrelated autonomous-vehicle sensor-fusion research implementation, not Microsoft's LLM router.",
+    "name_collision_source": "https://github.com/AICPS/hydrafusion",
+    "non_official_extensions": "Lerna and hydrafusion-traces appeared in search as community Copilot extensions/observability tools. They are not evidence that the HydraFusion implementation is public. No code from them was used."
+  },
+  "projects": [
+    {
+      "name": "llama-swap",
+      "repository": "https://github.com/mostlygeek/llama-swap",
+      "license": "MIT, verified from the repository's license designation",
+      "closest_fit": "Local model lifecycle and swapping. Its configuration includes readiness checks, persistent groups, concurrency controls, model aliases, and optional peers.",
+      "locality_caution": "Peers may be remote. Authentication and browser-origin restrictions are configurable and permissive defaults should not be inherited by Switchyard.",
+      "primary_docs": "https://github.com/mostlygeek/llama-swap/blob/main/docs/config.example.yaml"
+    },
+    {
+      "name": "LiteLLM",
+      "repository": "https://github.com/BerriAI/litellm",
+      "license": "MIT for code outside the enterprise directory; enterprise content has a separate license",
+      "license_source": "https://github.com/BerriAI/litellm/blob/main/LICENSE",
+      "closest_fit": "API normalization, bounded retry/fallback policy, health-aware routing, cooldowns, and operational telemetry.",
+      "locality_caution": "A self-hosted gateway can still call remote providers and logging integrations. Self-hosted does not mean local-only.",
+      "primary_docs": "https://docs.litellm.ai/docs/routing"
+    },
+    {
+      "name": "RouteLLM",
+      "repository": "https://github.com/lm-sys/RouteLLM",
+      "license": "Apache-2.0",
+      "license_source": "https://github.com/lm-sys/RouteLLM/blob/main/LICENSE",
+      "closest_fit": "Evaluating routing policies and calibrating cost/quality thresholds with representative queries.",
+      "locality_caution": "The README states mf and sw_ranking still need an OpenAI API key for embeddings even when inference uses local models. Do not adopt that default path under Switchyard's local-only promise.",
+      "primary_docs": "https://github.com/lm-sys/RouteLLM#model-support"
+    },
+    {
+      "name": "vLLM Semantic Router",
+      "repository": "https://github.com/vllm-project/semantic-router",
+      "license": "Apache-2.0",
+      "license_source": "https://github.com/vllm-project/semantic-router/blob/main/LICENSE",
+      "closest_fit": "Policy-aware selection, explicit selection evidence, route preview, and separating router correctness from response quality.",
+      "locality_caution": "Can choose configured local, private, or cloud backends. Treat it as architectural inspiration rather than adding its much larger serving stack to a Mac alpha.",
+      "primary_docs": "https://vllm-sr.ai/docs/faq/"
+    }
+  ],
+  "practices": [
+    {
+      "id": "bounded_admission",
+      "priority": "P0 alpha",
+      "practice": "Bound waiting and active inference independently of ordinary dashboard traffic.",
+      "evidence": "LiteLLM provides rate limits and timeouts. llama-swap's maintainer clarifies that its HTTP-level concurrency limit can also affect CSS requests, illustrating why inference admission needs its own scope.",
+      "sources": [
+        "https://docs.litellm.ai/docs/routing",
+        "https://github.com/mostlygeek/llama-swap/discussions/861"
+      ],
+      "switchyard_observation": "Ledger.acquire has per-model and global timed locks, but the inspected version has no explicit waiter count cap. The approval-payload queue is separately bounded; that does not bound inference tasks.",
+      "small_change": "Add validated max_pending_requests and max_pending_per_model values and cancellation-safe counters around inference admission. Reject excess work immediately with a structured queue_full code and Retry-After; expose active/queued/rejected counts without prompts. Keep health/settings usable when inference is saturated.",
+      "acceptance": "A burst above the configured cap yields bounded accepted work, prompt rejections, responsive health/settings, zero leaked counters after cancellation, and eventual capacity recovery."
+    },
+    {
+      "id": "private_observability",
+      "priority": "P0 alpha",
+      "practice": "Operational logs should explain behavior without exposing prompts, responses, credentials, or tool arguments.",
+      "evidence": "LiteLLM supports message redaction but its logging documentation also shows that integrations and opt-outs can alter what is retained. Its telemetry documentation warns that non-message metadata and errors may still be sensitive.",
+      "sources": [
+        "https://docs.litellm.ai/docs/proxy/logging",
+        "https://docs.litellm.ai/docs/observability/zerobus"
+      ],
+      "switchyard_observation": "Journal already declares metadata-only persistence, which is a useful foundation. The inspected index handler injects the API token into HTML served without authentication, so dashboard delivery currently undermines the API boundary.",
+      "small_change": "Remove token injection from public HTML; use an explicit local pairing/session flow. Whitelist log fields and use structured error codes instead of upstream response text. Keep request identity, model identity, timings, bounded numeric usage, outcome, and configuration version. Test SQLite and support exports for sentinel secrets.",
+      "acceptance": "Unauthenticated pages cannot disclose tokens. A test request containing distinct secrets in prompts, tools, errors, and credentials leaves none of those values in persisted logs or exported diagnostics."
+    },
+    {
+      "id": "bounded_execution",
+      "priority": "P0 alpha",
+      "practice": "Validate the execution plan before dispatch and make timeout/cancellation behavior explicit.",
+      "evidence": "HydraFusion's operating principles include validating model bindings and availability, time-limiting each workflow leg, honoring cancellation, and declining incomplete changes after failure.",
+      "sources": [
+        "https://github.blog/ai-and-ml/project-hydrafusion-frontier-quality-via-multi-model-orchestration/"
+      ],
+      "switchyard_observation": "The current design already validates capability/context/memory and protects memory reservations when load state is uncertain. Preserve those protections rather than relaxing them to improve benchmark throughput.",
+      "small_change": "Make one overall request deadline cover admission, loading, inference, and cleanup, while retaining stage-specific deadlines. Ensure a disconnected client closes upstream streaming and releases a lease exactly once. Never silently retry cloud approvals or splice a second model into a partially emitted stream.",
+      "acceptance": "Fault injection at queue, load, first token, middle of stream, and shutdown gives bounded termination; active counts return to zero or an explicit uncertain-reservation state; no duplicate provider sends occur."
+    },
+    {
+      "id": "health_and_cooldown",
+      "priority": "P1 alpha if time permits",
+      "practice": "Keep unhealthy runtimes out of normal selection, and make transient failures distinguishable from invalid requests.",
+      "evidence": "LiteLLM documents background checks, per-error failure thresholds, cooldowns, and explicit health staleness. Its all-unhealthy behavior can still try unavailable deployments; that is not appropriate for Switchyard's memory-safety boundary.",
+      "sources": [
+        "https://docs.litellm.ai/docs/proxy/health_check_routing"
+      ],
+      "switchyard_observation": "Service already polls runtimes and route() excludes offline/uncertain models. A generation failure between polls can still make repeated callers choose the same apparently available model.",
+      "small_change": "Track short-lived per-runtime transient-failure cooldowns with monotonic time. Include runtime_cooldown in selection exclusions and expose the next retry interval. Reset only after a successful local probe or generation. Never treat a malformed user request as a runtime failure, and retain fail-closed behavior for unknown memory state.",
+      "acceptance": "Repeated simulated connection failures stop repeated dispatch until the cooldown/probe permits it; user validation errors do not poison runtime health; recovery makes the model eligible again."
+    },
+    {
+      "id": "inspectable_decisions",
+      "priority": "P1 alpha",
+      "practice": "Provide a reproducible route preview and an accurate record of the model that actually served the request.",
+      "evidence": "vLLM Semantic Router documents previewing selection without inference, inspecting decision provenance, and checking the final selected-model receipt rather than inferring routing from a successful HTTP response.",
+      "sources": [
+        "https://vllm-sr.ai/docs/faq/"
+      ],
+      "switchyard_observation": "Switchyard already has a dry-run endpoint, selected-model headers, exclusions, and a deterministic_rules classifier. Its confidence=None honestly distinguishes heuristics from measured confidence.",
+      "small_change": "Add named score components and a routing-policy fingerprint to decision metadata so warm-model bonus, memory penalty, preference, and task score are explainable. Record requested model separately from served model, plus queue/load/inference duration. Keep heuristic scores explicitly uncalibrated.",
+      "acceptance": "A fixed catalog/policy/request produces the same decision and score explanation. A successful live response's model receipt agrees with the decision journal. Preview performs no load or generation call."
+    },
+    {
+      "id": "routing_evaluation",
+      "priority": "P1 alpha",
+      "practice": "Evaluate routing on representative workloads against a fixed baseline, with separate functional and quality results.",
+      "evidence": "RouteLLM recommends threshold calibration using queries resembling real traffic and supplies benchmark evaluation support. Its published performance applies to its evaluated configurations, not Switchyard.",
+      "sources": [
+        "https://github.com/lm-sys/RouteLLM#threshold-calibration",
+        "https://github.com/lm-sys/RouteLLM#evaluation"
+      ],
+      "switchyard_observation": "Task scores are user-configured and ranking uses fixed rules. Synthetic routing fixtures can validate those rules, but cannot establish the quality of actual installed models.",
+      "small_change": "Ship a small frozen evaluation fixture covering coding, quick chat, reasoning, long context, tool requirements, offline runtimes, and memory pressure. Report route accuracy for fixtures separately from actual-model completion quality, latency percentiles, cold-start time, cancellations, and queue rejections. Never infer quality from HTTP 200 or simulated backends.",
+      "acceptance": "Evaluation output includes case count, fixture revision, policy fingerprint, runtime/model versions, and an explicit simulated-versus-real designation. Missing live-runtime coverage is reported, not marked passed."
+    },
+    {
+      "id": "lifecycle_scheduler",
+      "priority": "P1 alpha verification",
+      "practice": "Schedule local models by readiness and scarce memory while protecting active work.",
+      "evidence": "llama-swap supports readiness endpoints, persistent model groups, and eviction-cost-aware allowed concurrency sets. These are directly relevant to local model lifecycle management.",
+      "sources": [
+        "https://github.com/mostlygeek/llama-swap/blob/main/docs/config.example.yaml"
+      ],
+      "switchyard_observation": "The memory ledger already protects active/resident/external models, checks budget feasibility before eviction, and accounts for cold-start cost. Unknown runtime state reserves memory until explicit recovery.",
+      "small_change": "Retain this design and strengthen tests for alternating large-model requests, external model loads, and catalog refresh during loading. Make the dashboard show reserved memory versus observed memory and which protection prevented eviction. Document that the budget is an estimate, not an OS memory guarantee.",
+      "acceptance": "Stress requests cannot evict active/external/resident models or oversubscribe accounted memory; impossible requests do not evict a working model before failing; uncertain runtime state remains visible and recoverable."
+    },
+    {
+      "id": "conversation_continuity",
+      "priority": "P2 after core alpha stability",
+      "practice": "Make model changes during tool-using conversations deliberate and visible.",
+      "evidence": "vLLM Semantic Router cautions that model changes can lose cache locality or break tool/conversation continuity, and recommends checking continuity separately from successful delivery.",
+      "sources": [
+        "https://vllm-sr.ai/docs/faq/"
+      ],
+      "switchyard_observation": "Each auto request is classified independently; a later tool result or warm-state change can alter the selected model. Explicit model requests already provide a simple way to maintain continuity.",
+      "small_change": "For alpha, document that agent clients should pin the returned model ID for a conversation/tool cycle. Later, add an optional bounded, expiring session-to-model mapping keyed by explicit client session identifiers; do not guess identity by retaining or hashing full prompt bodies. Explain any forced switch and revalidate capabilities.",
+      "acceptance": "Multi-turn and tool-result fixtures retain an explicit model; an unavailable pinned model gives a clear error. Any future session affinity expires predictably and never overrides safety or capability requirements."
+    }
+  ],
+  "recommended_implementation_order": [
+    "bounded_admission",
+    "private_observability",
+    "bounded_execution",
+    "inspectable_decisions",
+    "routing_evaluation",
+    "lifecycle_scheduler",
+    "health_and_cooldown",
+    "conversation_continuity"
+  ],
+  "defer_for_alpha": "HydraFusion-style multi-model critique/cascade adds calls, context transformations, cancellation paths, and evaluation needs. Borrow its validation and execution bounds now; ship compound generation only after demonstrating a benefit on Switchyard's own local model pool.",
+  "publication_notes": [
+    "No third-party source code was copied and no router dependency was installed for this research.",
+    "Cite architectural inspirations in the public source documentation. Do not imply affiliation with Microsoft, GitHub, llama-swap, LiteLLM, LMSYS, or vLLM.",
+    "The third-party licenses above describe the reviewed repositories; they do not choose or determine Switchyard's own license. Preserve applicable notices if actual third-party code is incorporated later.",
+    "Publish source, build instructions, dependency pins, repeatable test commands, a security reporting policy, and honestly qualified validation results together. Packaging, signing/notarization, and real-runtime verification remain separate release gates."
+  ]
+}

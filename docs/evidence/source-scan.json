@@ -1,0 +1,6 @@
+{
+  "kind": "credential-pattern and private-path scan plus manual release file inventory",
+  "text_files_scanned": 66,
+  "findings": [],
+  "limitations": "Heuristic patterns; not a guarantee that every secret format is detected. Profiles, databases, weights and caches excluded from the source inventory."
+}

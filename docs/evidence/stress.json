@@ -1,0 +1,128 @@
+{
+  "kind": "synthetic loopback HTTP fixtures; separate gateway process",
+  "platform": "macOS-27.0.1-arm64-arm-64bit",
+  "python": "3.12.15",
+  "attempts": 35712,
+  "unexpected": [],
+  "phases": [
+    {
+      "concurrency": 1,
+      "attempts": 1500,
+      "statuses": {
+        "502": 29,
+        "200": 1471
+      },
+      "error_codes": {
+        "runtime_error": 22,
+        "truncated_response": 7
+      },
+      "seconds": 9.427,
+      "p95_ms": 7.876
+    },
+    {
+      "concurrency": 8,
+      "attempts": 1500,
+      "statuses": {
+        "503": 91,
+        "422": 659,
+        "502": 15,
+        "200": 735
+      },
+      "error_codes": {
+        "memory_budget": 91,
+        "no_eligible_model": 659,
+        "runtime_error": 12,
+        "truncated_response": 3
+      },
+      "seconds": 1.427,
+      "p95_ms": 26.103
+    },
+    {
+      "concurrency": 32,
+      "attempts": 1500,
+      "statuses": {
+        "503": 108,
+        "422": 662,
+        "502": 14,
+        "200": 716
+      },
+      "error_codes": {
+        "memory_budget": 79,
+        "no_eligible_model": 662,
+        "runtime_error": 11,
+        "overloaded": 29,
+        "truncated_response": 3
+      },
+      "seconds": 1.607,
+      "p95_ms": 58.706
+    },
+    {
+      "concurrency": 128,
+      "attempts": 1500,
+      "statuses": {
+        "422": 29,
+        "503": 1443,
+        "502": 1,
+        "200": 27
+      },
+      "error_codes": {
+        "no_eligible_model": 29,
+        "overloaded": 1443,
+        "runtime_error": 1
+      },
+      "seconds": 0.095,
+      "p95_ms": 9.243
+    }
+  ],
+  "warm_routing": {
+    "probes": 1000,
+    "p50_ms": 0.222,
+    "p95_ms": 0.265
+  },
+  "soak": {
+    "attempts": 29712,
+    "statuses": {
+      "422": 5,
+      "502": 337,
+      "200": 16995,
+      "503": 12375
+    },
+    "error_codes": {
+      "no_eligible_model": 5,
+      "runtime_error": 257,
+      "memory_budget": 12375,
+      "truncated_response": 80
+    },
+    "seconds": 60.009,
+    "p95_ms": 22.995
+  },
+  "recovery_status": 200,
+  "final_active": 0,
+  "final_inflight": {
+    "inference": 0,
+    "control": 1
+  },
+  "gateway_metrics": {
+    "accepted": 34281,
+    "overloaded": 1472,
+    "completed": 19894,
+    "failed": 12992,
+    "cancelled": 40
+  },
+  "fixture_active_evictions": 0,
+  "fixture_loads": 10108,
+  "fixture_unloads": 10106,
+  "disconnect_cases": 40,
+  "sampled_peak_rss_mib": 58.31,
+  "rss_method": "gateway resource.getrusage(RUSAGE_SELF); OS process peak, excludes runtime peers",
+  "sampled_peak_model_reservation_gib": 4.44,
+  "sampled_peak_active": 3,
+  "checks": {
+    "no_unexpected_outcomes": true,
+    "no_active_eviction": true,
+    "recovered": true,
+    "active_released": true,
+    "budget_respected": true,
+    "rss_under_500_mib": true
+  }
+}

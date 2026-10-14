@@ -1,0 +1,88 @@
+test_config_invalid_blocks (tests.test_alpha.FileTests.test_config_invalid_blocks) ... ok
+test_database_link_blocks (tests.test_alpha.FileTests.test_database_link_blocks) ... ok
+test_database_no_prompt (tests.test_alpha.FileTests.test_database_no_prompt) ... ok
+test_database_patched (tests.test_alpha.FileTests.test_database_patched) ... ok
+test_database_retention (tests.test_alpha.FileTests.test_database_retention) ... ok
+test_directory_link (tests.test_alpha.FileTests.test_directory_link) ... ok
+test_empty_token (tests.test_alpha.FileTests.test_empty_token) ... ok
+test_hardlink_token (tests.test_alpha.FileTests.test_hardlink_token) ... ok
+test_large_decision_history_is_bounded_by_bytes (tests.test_alpha.FileTests.test_large_decision_history_is_bounded_by_bytes) ... ok
+test_private_token (tests.test_alpha.FileTests.test_private_token) ... ok
+test_public_token (tests.test_alpha.FileTests.test_public_token) ... ok
+test_symlink_token (tests.test_alpha.FileTests.test_symlink_token) ... ok
+test_yaml_cycle_blocks (tests.test_alpha.FileTests.test_yaml_cycle_blocks) ... ok
+test_active_model_not_evicted (tests.test_alpha.GatewayTests.test_active_model_not_evicted) ... switchyard/server.py:495: NotAppKeyWarning: It is recommended to use web.AppKey instances for keys.
+https://docs.aiohttp.org/en/stable/web_advanced.html#application-s-config
+  app=web.Application(middlewares=[guard],client_max_size=MAX_BODY); s=Service(path); app['service']=s
+switchyard/server.py:287: NotAppKeyWarning: It is recommended to use web.RequestKey instances for keys.
+https://docs.aiohttp.org/en/stable/web_advanced.html#request-s-storage
+  request['deadline']=asyncio.get_running_loop().time()+s.config.data['request_timeout']
+ok
+test_all_control_endpoints_require_auth (tests.test_alpha.GatewayTests.test_all_control_endpoints_require_auth) ... ok
+test_anthropic (tests.test_alpha.GatewayTests.test_anthropic) ... ok
+test_approval_off_blocks_old_pending (tests.test_alpha.GatewayTests.test_approval_off_blocks_old_pending) ... ok
+test_approval_queue_bounded (tests.test_alpha.GatewayTests.test_approval_queue_bounded) ... ok
+test_approval_tampering_and_sensitive_content (tests.test_alpha.GatewayTests.test_approval_tampering_and_sensitive_content) ... ok
+test_approved_send_exactly_once_without_external_network (tests.test_alpha.GatewayTests.test_approved_send_exactly_once_without_external_network) ... ok
+test_authenticated_dashboard_no_embedded_token (tests.test_alpha.GatewayTests.test_authenticated_dashboard_no_embedded_token) ... ok
+test_bad_json (tests.test_alpha.GatewayTests.test_bad_json) ... ok
+test_bad_origins_hosts (tests.test_alpha.GatewayTests.test_bad_origins_hosts) ... ok
+test_body_size (tests.test_alpha.GatewayTests.test_body_size) ... bundled-packages/aiohttp/payload.py:362: ResourceWarning: Sending a large body directly with raw bytes might lock the event loop. You should probably pass an io.BytesIO object instead
+  warnings.warn(
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+test_cancel_releases (tests.test_alpha.GatewayTests.test_cancel_releases) ... ok
+test_control_size_and_load_validation (tests.test_alpha.GatewayTests.test_control_size_and_load_validation) ... ok
+test_dashboard_requires_auth (tests.test_alpha.GatewayTests.test_dashboard_requires_auth) ... ok
+test_denial_cannot_reopen (tests.test_alpha.GatewayTests.test_denial_cannot_reopen) ... ok
+test_dry_run_no_runtime_work (tests.test_alpha.GatewayTests.test_dry_run_no_runtime_work) ... ok
+test_expiry_on_state_access (tests.test_alpha.GatewayTests.test_expiry_on_state_access) ... ok
+test_external_instance_not_unloaded (tests.test_alpha.GatewayTests.test_external_instance_not_unloaded) ... ok
+test_health_is_minimal (tests.test_alpha.GatewayTests.test_health_is_minimal) ... ok
+test_inventory (tests.test_alpha.GatewayTests.test_inventory) ... ok
+test_late_stream_error_no_done (tests.test_alpha.GatewayTests.test_late_stream_error_no_done) ... ok
+test_load_failure_reserves_and_blocks (tests.test_alpha.GatewayTests.test_load_failure_reserves_and_blocks) ... ok
+test_locality_required (tests.test_alpha.GatewayTests.test_locality_required) ... ok
+test_log_no_request_content (tests.test_alpha.GatewayTests.test_log_no_request_content) ... ok
+test_nonascii_token (tests.test_alpha.GatewayTests.test_nonascii_token) ... ok
+test_overall_deadline_closes_slow_upstream (tests.test_alpha.GatewayTests.test_overall_deadline_closes_slow_upstream) ... ok
+test_overload_and_recovery (tests.test_alpha.GatewayTests.test_overload_and_recovery) ... ok
+test_schema_failure_is_failure (tests.test_alpha.GatewayTests.test_schema_failure_is_failure) ... ok
+test_sse_both_runtimes (tests.test_alpha.GatewayTests.test_sse_both_runtimes) ... ok
+test_text_both_runtimes (tests.test_alpha.GatewayTests.test_text_both_runtimes) ... ok
+test_tool_streaming_both_protocols (tests.test_alpha.GatewayTests.test_tool_streaming_both_protocols) ... ok
+test_tools_require_verification (tests.test_alpha.GatewayTests.test_tools_require_verification) ... ok
+test_upstream_faults_no_fake_success (tests.test_alpha.GatewayTests.test_upstream_faults_no_fake_success) ... ok
+test_explicit_selection_keeps_constraints (tests.test_alpha.InputTests.test_explicit_selection_keeps_constraints) ... ok
+test_final_tool_arguments_checked (tests.test_alpha.InputTests.test_final_tool_arguments_checked) ... ok
+test_input_options (tests.test_alpha.InputTests.test_input_options) ... ok
+test_json_bytes (tests.test_alpha.InputTests.test_json_bytes) ... ok
+test_json_cycles (tests.test_alpha.InputTests.test_json_cycles) ... ok
+test_json_depth (tests.test_alpha.InputTests.test_json_depth) ... ok
+test_json_duplicate (tests.test_alpha.InputTests.test_json_duplicate) ... ok
+test_json_finite (tests.test_alpha.InputTests.test_json_finite) ... ok
+test_json_nodes (tests.test_alpha.InputTests.test_json_nodes) ... ok
+test_long_privacy_scan_is_bounded (tests.test_alpha.InputTests.test_long_privacy_scan_is_bounded) ... ok
+test_policy_work_limits (tests.test_alpha.InputTests.test_policy_work_limits) ... ok
+test_private_tags (tests.test_alpha.InputTests.test_private_tags) ... ok
+test_remote_images_rejected (tests.test_alpha.InputTests.test_remote_images_rejected) ... ok
+test_remote_runtime_addresses (tests.test_alpha.InputTests.test_remote_runtime_addresses) ... ok
+test_route_explanation_and_fingerprint (tests.test_alpha.InputTests.test_route_explanation_and_fingerprint) ... ok
+test_schema_supported (tests.test_alpha.InputTests.test_schema_supported) ... ok
+test_schema_work_limits (tests.test_alpha.InputTests.test_schema_work_limits) ... ok
+test_tool_history_requires_results (tests.test_alpha.InputTests.test_tool_history_requires_results) ... ok
+test_unknown_anthropic_features (tests.test_alpha.InputTests.test_unknown_anthropic_features) ... ok
+test_approval_must_match_current_inputs (tests.test_desktop.DesktopTests.test_approval_must_match_current_inputs) ... ok
+test_invalid_port (tests.test_desktop.DesktopTests.test_invalid_port) ... ok
+test_lifecycle_and_port_ownership (tests.test_desktop.DesktopTests.test_lifecycle_and_port_ownership) ... ok
+test_load_unload_explanations (tests.test_desktop.DesktopTests.test_load_unload_explanations) ... ok
+test_mcp_recovers_after_malformed_inputs (tests.test_desktop.DesktopTests.test_mcp_recovers_after_malformed_inputs) ... ok
+test_mcp_stops_on_oversized_message (tests.test_desktop.DesktopTests.test_mcp_stops_on_oversized_message) ... ok
+test_playground_validation (tests.test_desktop.DesktopTests.test_playground_validation) ... ok
+test_stream_error_is_not_success (tests.test_desktop.DesktopTests.test_stream_error_is_not_success) ... ok
+test_real_appkit_protocol_registration (tests.test_desktop.NativeBridgeTests.test_real_appkit_protocol_registration) ... ok
+
+----------------------------------------------------------------------
+Ran 74 tests in 4.120s
+
+OK
